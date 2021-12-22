@@ -21,6 +21,7 @@ func main() {
 	var dstRegion string
 	var threads uint
 	var deleteSource bool
+	var region string
 	rand.Seed(time.Now().UnixNano())
 	app := &cli.App{
 		Commands: []*cli.Command{
@@ -32,11 +33,18 @@ func main() {
 						Usage:       "bucket to clear multiparts",
 						Destination: &src,
 					},
+					&cli.StringFlag{
+						Name:        "region",
+						Value:       "",
+						Usage:       "region to initialize the sdk",
+						Destination: &region,
+						EnvVars:     []string{"AWS_DEFAULT_REGION", "AWS_REGION"},
+					},
 				},
 				Name:  "delete",
 				Usage: "delete all multiparts in a bucket",
 				Action: func(c *cli.Context) error {
-					cfg, err := config.LoadDefaultConfig(context.TODO())
+					cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
 					if err != nil {
 						log.Fatal(err.Error())
 					}
@@ -76,6 +84,13 @@ func main() {
 						Usage:       "this will delete the original data. TODO implement",
 						Destination: &deleteSource,
 					},
+					&cli.StringFlag{
+						Name:        "region",
+						Value:       "",
+						Usage:       "region to initialize the sdk",
+						Destination: &region,
+						EnvVars:     []string{"AWS_DEFAULT_REGION", "AWS_REGION"},
+					},
 				},
 				Name:    "create",
 				Usage:   "specify a source folder in S3 and a destination in a separate folder",
@@ -93,7 +108,7 @@ func main() {
 					s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(dst)
 					s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
 
-					cfg, err := config.LoadDefaultConfig(context.TODO())
+					cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
 					if err != nil {
 						log.Fatal(err.Error())
 					}

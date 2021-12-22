@@ -1,5 +1,4 @@
 # s3tar
-Servier Side S3 TAR Utility
 
 A utility to TAR existing objects in S3.
 
