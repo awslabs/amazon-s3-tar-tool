@@ -36,7 +36,7 @@ func main() {
 				Name:  "delete",
 				Usage: "delete all multiparts in a bucket",
 				Action: func(c *cli.Context) error {
-					cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion("us-west-2"))
+					cfg, err := config.LoadDefaultConfig(context.TODO())
 					if err != nil {
 						log.Fatal(err.Error())
 					}
@@ -93,7 +93,7 @@ func main() {
 					s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(dst)
 					s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
 
-					cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion("us-west-2"))
+					cfg, err := config.LoadDefaultConfig(context.TODO())
 					if err != nil {
 						log.Fatal(err.Error())
 					}
