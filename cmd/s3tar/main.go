@@ -27,6 +27,26 @@ func main() {
 			{
 				Flags: []cli.Flag{
 					&cli.StringFlag{
+						Name:        "bucket",
+						Value:       "",
+						Usage:       "bucket to clear multiparts",
+						Destination: &src,
+					},
+				},
+				Name:  "delete",
+				Usage: "delete all multiparts in a bucket",
+				Action: func(c *cli.Context) error {
+					cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion("us-west-2"))
+					if err != nil {
+						log.Fatal(err.Error())
+					}
+					svc := s3.NewFromConfig(cfg)
+					return s3tar.DeleteAllMultiparts(svc, src)
+				},
+			},
+			{
+				Flags: []cli.Flag{
+					&cli.StringFlag{
 						Name:        "src",
 						Value:       "",
 						Usage:       "local directory or s3 url",
@@ -59,7 +79,7 @@ func main() {
 				},
 				Name:    "create",
 				Usage:   "specify a source folder in S3 and a destination in a separate folder",
-				Aliases: []string{"a"},
+				Aliases: []string{"c"},
 				Action: func(c *cli.Context) error {
 					if src == "" || dst == "" {
 						log.Fatalf("src or dst missing")
