@@ -5,9 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"path/filepath"
 	"regexp"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -34,10 +32,11 @@ type SSTarS3Options struct {
 	Threads      uint
 	DeleteSource bool
 	SmallFiles   bool
+	Region       string
 }
 
 type PartsMessage struct {
-	Parts   []S3Obj
+	Parts   []*S3Obj
 	PartNum int
 }
 
@@ -47,6 +46,12 @@ type S3Obj struct {
 	PartNum int
 	Data    []byte
 }
+
+type byPartNum []*S3Obj
+
+func (a byPartNum) Len() int           { return len(a) }
+func (a byPartNum) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a byPartNum) Less(i, j int) bool { return a[i].PartNum < a[j].PartNum }
 
 type Index struct {
 	Start int
@@ -65,24 +70,6 @@ func ExtractBucketAndPath(s3url string) (bucket string, path string) {
 		path = parts[0][2]
 	}
 	return
-}
-
-func createFirstBlock(ctx context.Context, svc *s3.Client, bucket, parts string) S3Obj {
-	key := filepath.Join(parts, "min-size-block")
-	now := time.Now()
-	output, err := putObject(ctx, svc, bucket, key, pad)
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-	return S3Obj{
-		Bucket: bucket,
-		Object: types.Object{
-			Key:          &key,
-			Size:         int64(len(pad)),
-			LastModified: &now,
-			ETag:         output.ETag,
-		},
-	}
 }
 
 func listAllObjects(ctx context.Context, client *s3.Client, Bucket, Prefix string) []types.Object {
@@ -154,7 +141,7 @@ func GetS3Client(ctx context.Context) *s3.Client {
 	return client
 }
 
-func _deleteObjectList(ctx context.Context, opts *SSTarS3Options, objectList []S3Obj) error {
+func _deleteObjectList(ctx context.Context, opts *SSTarS3Options, objectList []*S3Obj) error {
 	client := GetS3Client(ctx)
 	objects := make([]types.ObjectIdentifier, len(objectList))
 	for i := 0; i < len(objectList); i++ {
@@ -181,9 +168,9 @@ func _deleteObjectList(ctx context.Context, opts *SSTarS3Options, objectList []S
 }
 
 func deleteS3ObjectList(ctx context.Context, opts *SSTarS3Options, bucket string, objectList []types.Object) error {
-	objects := []S3Obj{}
+	objects := []*S3Obj{}
 	for _, x := range objectList {
-		objects = append(objects, S3Obj{
+		objects = append(objects, &S3Obj{
 			Bucket: bucket,
 			Object: types.Object{
 				Key: x.Key,
@@ -193,7 +180,7 @@ func deleteS3ObjectList(ctx context.Context, opts *SSTarS3Options, bucket string
 	return deleteObjectList(ctx, opts, objects)
 }
 
-func deleteObjectList(ctx context.Context, opts *SSTarS3Options, objectList []S3Obj) error {
+func deleteObjectList(ctx context.Context, opts *SSTarS3Options, objectList []*S3Obj) error {
 	batch := 1000
 	for i := 0; i < len(objectList); i += batch {
 		start := i

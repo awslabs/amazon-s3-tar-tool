@@ -103,6 +103,7 @@ func main() {
 					s3opts := &s3tar.SSTarS3Options{
 						Threads:      threads,
 						DeleteSource: deleteSource,
+						Region:       region,
 					}
 					s3opts.SrcBucket, s3opts.SrcPrefix = s3tar.ExtractBucketAndPath(src)
 					s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(dst)

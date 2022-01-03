@@ -23,6 +23,7 @@ import (
 var (
 	accum int64 = 0
 	pad         = make([]byte, beginningPad)
+	rc    *RecursiveConcat
 )
 
 type contextKey string
@@ -45,6 +46,17 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *SSTarS3Option
 		}
 	}
 
+	var err error
+	log.Printf("%s %s %s", opts.DstBucket, opts.DstKey, opts.Region)
+	rc, err = NewRecursiveConcat(ctx, RecursiveConcatOptions{
+		Bucket: opts.DstBucket,
+		Key:    opts.DstPrefix,
+		Region: opts.Region,
+	})
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
 	if smallFiles {
 		headers := processHeaders(ctx, objectList, false, opts)
 		processSmallFiles(ctx, headers, objectList, opts)
@@ -59,72 +71,47 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *SSTarS3Option
 
 }
 
-func _processSmallFiles(ctx context.Context, objectList []types.Object, start, end int, opts *SSTarS3Options) (S3Obj, error) {
-	client := GetS3Client(ctx)
+func _processSmallFiles(ctx context.Context, objectList []types.Object, start, end int, opts *SSTarS3Options) (*S3Obj, error) {
 	parentPartsKey := filepath.Join(opts.DstPrefix, "parts")
-	var accumParts S3Obj = startBlock
+	parts := []*S3Obj{}
 	for i, partNum := start, 0; i < end; i, partNum = i+1, partNum+1 {
 		log.Printf("Processing: %s", *objectList[i].Key)
-		istr := fmt.Sprintf("%04d", i)
+		// istr := fmt.Sprintf("%04d", i)
 		var prev types.Object
 		if (i - 1) >= 0 {
 			prev = objectList[i-1]
 		}
 		header := buildHeader(objectList[i], prev, false)
-
-		{
-			var err error
-			pair := []S3Obj{accumParts, header}
-			partName := strings.Join([]string{"iteration", "header", istr}, ".")
-			dstKey := filepath.Join(parentPartsKey, partName)
-			accumParts, err = concatObjects(ctx, client, 0, pair, opts.DstBucket, dstKey)
-			if err != nil {
-				log.Fatal(err.Error())
-			}
-		}
-
-		partName := strings.Join([]string{"iteration", "part", istr}, ".")
-		dstKey := filepath.Join(parentPartsKey, partName)
-		pair := []S3Obj{accumParts, {
+		pairs := []*S3Obj{&header, {
 			Object:  objectList[i],
 			Bucket:  opts.SrcBucket,
 			PartNum: partNum,
 		}}
-
-		var err error
-		accumParts, err = concatObjects(ctx, client, 0, pair, opts.DstBucket, dstKey)
-		if err != nil {
-			// handle error -- delete all parts
-			log.Printf("error recursion on iteration %d\n%s", i+1, err.Error())
-			break
-		}
-		// firstObject = false
-
+		parts = append(parts, pairs...)
 	}
 
 	batchName := fmt.Sprintf("%d-%d", start, end)
 	dstKey := filepath.Join(parentPartsKey, strings.Join([]string{"iteration", "batch", batchName}, "."))
-	finalPart, err := concatObjects(ctx, client, beginningPad, []S3Obj{accumParts}, opts.DstBucket, dstKey)
+	finalPart, err := rc.ConcatObjects(ctx, parts, opts.DstBucket, dstKey)
 	if err != nil {
 		log.Printf("error recursion on final\n%s", err.Error())
-		return S3Obj{}, err
+		return &S3Obj{}, err
 	}
 
 	return finalPart, nil
 }
 
-func processSmallFiles(ctx context.Context, headers []S3Obj, objectList []types.Object, opts *SSTarS3Options) error {
+func processSmallFiles(ctx context.Context, headers []*S3Obj, objectList []types.Object, opts *SSTarS3Options) error {
+
 	log.Printf("processSmallFiles path")
 	client := GetS3Client(ctx)
-	parentPartsKey := filepath.Join(opts.DstPrefix, "parts")
-	startBlock = createFirstBlock(ctx, client, opts.DstBucket, parentPartsKey)
 
-	allParts := []S3Obj{}
+	allParts := []*S3Obj{}
 	for i, ctr := 0, 1; i < len(objectList); i, ctr = i+1, ctr+2 {
 		headers[i].PartNum = ctr
 		allParts = append(allParts,
 			headers[i],
-			S3Obj{
+			&S3Obj{
 				Object:  objectList[i],
 				Bucket:  opts.SrcBucket,
 				PartNum: ctr + 1,
@@ -154,7 +141,7 @@ func processSmallFiles(ctx context.Context, headers []S3Obj, objectList []types.
 	}
 
 	m := sync.Mutex{}
-	secondBatch := []S3Obj{}
+	groups := []*S3Obj{}
 	swg := sizedwaitgroup.New(30)
 	log.Printf("Created %d parts", len(indexList))
 	for i, p := range indexList {
@@ -168,47 +155,45 @@ func processSmallFiles(ctx context.Context, headers []S3Obj, objectList []types.
 			}
 			m.Lock()
 			newPart.PartNum = start
-			secondBatch = append(secondBatch, newPart)
+			groups = append(groups, newPart)
 			m.Unlock()
 		}(p.Start, p.End)
 	}
 
 	log.Printf("Waiting for threads")
 	swg.Wait()
-	sort.Slice(secondBatch, func(i, j int) bool {
-		return secondBatch[i].PartNum < secondBatch[j].PartNum
-	})
+	sort.Sort(byPartNum(groups))
 
-	// figure out if the final concat needs to be recursive
+	// reset partNum counts.
+	// Figure out if the final concat needs to be recursive
 	recursiveConcat := false
-	for x := 0; x < len(secondBatch)-1; x++ { //ignore last piece
-		if secondBatch[x].Size < int64(fileSizeMin) {
+	for x := 0; x < len(groups)-1; x++ { //ignore last piece
+		groups[x].PartNum = x + 1
+		if groups[x].Size < int64(fileSizeMin) {
 			recursiveConcat = true
-			log.Printf("Part %d of %d is %d", x, len(secondBatch), secondBatch[x].Size)
-			break
 		}
 	}
+	groups[len(groups)-1].PartNum = len(groups) // setup the last PartNum since we skipped it
 
 	log.Printf("Concatenating all pieces")
-	var finalObject S3Obj
+	var finalObject *S3Obj
 	if recursiveConcat {
-		padObject := S3Obj{
+		padObject := &S3Obj{
 			Object: types.Object{
 				Key:  aws.String("pad_file"),
 				Size: int64(len(pad)),
 			},
 			Data: pad}
-
-		for i := 0; i < len(secondBatch); i++ {
+		for i := 0; i < len(groups); i++ {
 			var err error
-			var pair []S3Obj
+			var pair []*S3Obj
 			if i == 0 {
-				pair = []S3Obj{padObject, secondBatch[i]}
+				pair = []*S3Obj{padObject, groups[i]}
 			} else {
-				pair = []S3Obj{finalObject, secondBatch[i]}
+				pair = []*S3Obj{finalObject, groups[i]}
 			}
 			trim := 0
-			if i == len(secondBatch)-1 {
+			if i == len(groups)-1 {
 				trim = beginningPad
 			}
 			log.Printf("Concat(%s,%s)", *pair[0].Key, *pair[1].Key)
@@ -219,7 +204,8 @@ func processSmallFiles(ctx context.Context, headers []S3Obj, objectList []types.
 		}
 	} else {
 		var err error
-		finalObject, err = concatObjects(ctx, client, 0, secondBatch, opts.DstBucket, opts.DstKey)
+		log.Printf("All Concat")
+		finalObject, err = concatObjects(ctx, client, 0, groups, opts.DstBucket, opts.DstKey)
 		if err != nil {
 			log.Printf("error recursion on final\n%s", err.Error())
 			return err
@@ -240,7 +226,7 @@ func processSmallFiles(ctx context.Context, headers []S3Obj, objectList []types.
 		panic(err)
 	}
 	now := time.Now()
-	lastBatch := []S3Obj{
+	lastBatch := []*S3Obj{
 		finalObject,
 		{
 			Bucket: opts.DstBucket,
@@ -252,6 +238,7 @@ func processSmallFiles(ctx context.Context, headers []S3Obj, objectList []types.
 			},
 		},
 	}
+	log.Printf("FinalPiece")
 	finalObject, err = concatObjects(ctx, client, 0, lastBatch, opts.DstBucket, opts.DstKey)
 	if err != nil {
 		log.Printf("error recursion on final\n%s", err.Error())
@@ -270,17 +257,17 @@ func processSmallFiles(ctx context.Context, headers []S3Obj, objectList []types.
 
 }
 
-func processLargeParts(ctx context.Context, headers []S3Obj, objectList []types.Object, opts *SSTarS3Options) {
+func processLargeParts(ctx context.Context, headers []*S3Obj, objectList []types.Object, opts *SSTarS3Options) {
 
 	svc := GetS3Client(ctx)
-	joinedParts := []S3Obj{}
+	joinedParts := []*S3Obj{}
 	filename := filepath.Base(*objectList[0].Key)
 	parentPartsKey := filepath.Join(opts.DstPrefix, "parts")
 	// Join the first parts
 
 	part1Filename := strings.Join([]string{"pad5mb", "tar_hdr1", filename, "hdr2", "part"}, ".")
 	tempPart := filepath.Join(parentPartsKey, part1Filename)
-	objectsToJoin := []S3Obj{
+	objectsToJoin := []*S3Obj{
 		headers[0],
 		{
 			Object: objectList[0],
@@ -317,9 +304,9 @@ func processLargeParts(ctx context.Context, headers []S3Obj, objectList []types.
 
 }
 
-func mergeHeaderObjects(ctx context.Context, headers []S3Obj, objectList []types.Object, opts *SSTarS3Options) []S3Obj {
+func mergeHeaderObjects(ctx context.Context, headers []*S3Obj, objectList []types.Object, opts *SSTarS3Options) []*S3Obj {
 	messages := buildObjectHeader(ctx, headers, objectList, opts)
-	result := make(chan S3Obj)
+	result := make(chan *S3Obj)
 	var wg sync.WaitGroup
 	const numDigesters = 20
 	wg.Add(numDigesters)
@@ -333,23 +320,21 @@ func mergeHeaderObjects(ctx context.Context, headers []S3Obj, objectList []types
 		wg.Wait()
 		close(result)
 	}()
-	parts := []S3Obj{}
+	parts := []*S3Obj{}
 	for r := range result {
 		parts = append(parts, r)
 	}
-	sort.Slice(parts, func(i, j int) bool {
-		return parts[i].PartNum < parts[j].PartNum
-	})
+	sort.Sort(byPartNum(parts))
 	return parts
 }
 
-func buildObjectHeader(ctx context.Context, headers []S3Obj, objectList []types.Object, opts *SSTarS3Options) <-chan PartsMessage {
+func buildObjectHeader(ctx context.Context, headers []*S3Obj, objectList []types.Object, opts *SSTarS3Options) <-chan PartsMessage {
 	// pairs
 	pairsChan := make(chan PartsMessage)
 	go func() {
 		defer close(pairsChan)
 		for i := 1; i < len(objectList); i++ {
-			concatParts := []S3Obj{
+			concatParts := []*S3Obj{
 				{Object: objectList[i], Bucket: opts.SrcBucket},
 				headers[i+1],
 			}
@@ -365,7 +350,7 @@ func buildObjectHeader(ctx context.Context, headers []S3Obj, objectList []types.
 	return pairsChan
 }
 
-func digesterPairs(ctx context.Context, pairsChan <-chan PartsMessage, result chan<- S3Obj, opts *SSTarS3Options) {
+func digesterPairs(ctx context.Context, pairsChan <-chan PartsMessage, result chan<- *S3Obj, opts *SSTarS3Options) {
 	svc := GetS3Client(ctx)
 	for m := range pairsChan {
 		filename := filepath.Base(*m.Parts[0].Key)
@@ -419,8 +404,8 @@ func buildHeader(o, prev types.Object, addZeros bool) S3Obj {
 	}
 }
 
-func buildHeaders(objectList []types.Object, frontPad bool, opts *SSTarS3Options) []S3Obj {
-	headers := []S3Obj{}
+func buildHeaders(objectList []types.Object, frontPad bool, opts *SSTarS3Options) []*S3Obj {
+	headers := []*S3Obj{}
 	pad := make([]byte, beginningPad)
 	for i := 0; i < len(objectList); i++ {
 		o := objectList[i]
@@ -458,7 +443,7 @@ func buildHeaders(objectList []types.Object, frontPad bool, opts *SSTarS3Options
 		atomic.AddInt64(&accum, int64(len(data)+int(o.Size)))
 		headerKey := filepath.Join(opts.DstPrefix, "headers", filename+".hdr")
 		ETag := fmt.Sprintf("%x", md5.Sum(data))
-		headers = append(headers, S3Obj{
+		headers = append(headers, &S3Obj{
 			Bucket: opts.SrcBucket,
 			Object: types.Object{
 				Key:  &headerKey,
@@ -474,12 +459,10 @@ func buildHeaders(objectList []types.Object, frontPad bool, opts *SSTarS3Options
 	return headers
 }
 
-func processHeaders(ctx context.Context, objectList []types.Object, frontPad bool, opts *SSTarS3Options) []S3Obj {
+func processHeaders(ctx context.Context, objectList []types.Object, frontPad bool, opts *SSTarS3Options) []*S3Obj {
 	client := GetS3Client(ctx)
 	headers := buildHeaders(objectList, frontPad, opts)
-	sort.Slice(headers, func(i, j int) bool {
-		return headers[i].PartNum < headers[j].PartNum
-	})
+	sort.Sort(byPartNum(headers))
 
 	///////////////////////
 	// Create last header
@@ -496,7 +479,7 @@ func processHeaders(ctx context.Context, objectList []types.Object, frontPad boo
 	if err != nil {
 		panic(err)
 	}
-	headers = append(headers, S3Obj{
+	headers = append(headers, &S3Obj{
 		Bucket: opts.DstBucket,
 		Object: types.Object{
 			Key:  &lastHeaderKey,
@@ -508,8 +491,8 @@ func processHeaders(ctx context.Context, objectList []types.Object, frontPad boo
 	return headers
 }
 
-func concatObjects(ctx context.Context, client *s3.Client, trimFirstBytes int, objectList []S3Obj, bucket, key string) (S3Obj, error) {
-	complete := S3Obj{}
+func concatObjects(ctx context.Context, client *s3.Client, trimFirstBytes int, objectList []*S3Obj, bucket, key string) (*S3Obj, error) {
+	complete := &S3Obj{}
 	output, err := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
@@ -557,7 +540,6 @@ func concatObjects(ctx context.Context, client *s3.Client, trimFirstBytes int, o
 				copySourceRange = fmt.Sprintf("bytes=0-%d", object.Size-1)
 				accumSize += object.Size
 			}
-			// log.Printf("%s", *object.Key)
 			input := s3.UploadPartCopyInput{
 				Bucket:          &bucket,
 				Key:             &key,
@@ -569,7 +551,6 @@ func concatObjects(ctx context.Context, client *s3.Client, trimFirstBytes int, o
 			swg.Add()
 			go func(input s3.UploadPartCopyInput) {
 				defer swg.Done()
-				// log.Printf("UploadPartCopy Range: %s CopySource: %s into %s/%s\n", *input.CopySourceRange, *input.CopySource, *input.Bucket, *input.Key)
 				r, err := client.UploadPartCopy(ctx, &input)
 				if err != nil {
 					log.Printf("error for s3://%s/%s", *input.Bucket, *input.Key)
@@ -602,7 +583,7 @@ func concatObjects(ctx context.Context, client *s3.Client, trimFirstBytes int, o
 	}
 	// fmt.Printf("%+v", completeOutput)
 	now := time.Now()
-	complete = S3Obj{
+	complete = &S3Obj{
 		Bucket: *completeOutput.Bucket,
 		Object: types.Object{
 			Key:          completeOutput.Key,
