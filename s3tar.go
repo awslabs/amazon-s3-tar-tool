@@ -63,7 +63,7 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *SSTarS3Option
 		return
 	} else {
 		headers := processHeaders(ctx, objectList, true, opts)
-		processLargeParts(ctx, headers, objectList, opts)
+		processLargeFiles(ctx, headers, objectList, opts)
 	}
 
 	elapsed := time.Since(start)
@@ -132,17 +132,15 @@ func processSmallFiles(ctx context.Context, headers []*S3Obj, objectList []types
 			last, currSize = i, 0
 		}
 	}
-	if last != len(objectList) {
-		indexList = append(indexList, Index{
-			Start: last,
-			End:   len(objectList),
-			Size:  int(currSize),
-		})
-	}
+
+	// Shift. Make the last part include everything till the end.
+	// We don't want something that is less than 5MB
+	indexList[len(indexList)-1].End = len(objectList)
+	indexList[len(indexList)-1].Size = indexList[len(indexList)-1].Size + int(currSize)
 
 	m := sync.Mutex{}
 	groups := []*S3Obj{}
-	swg := sizedwaitgroup.New(30)
+	swg := sizedwaitgroup.New(100)
 	log.Printf("Created %d parts", len(indexList))
 	for i, p := range indexList {
 		log.Printf("%04d\t(%d)\t%d-%d", i, p.Size, p.Start, p.End)
@@ -257,7 +255,7 @@ func processSmallFiles(ctx context.Context, headers []*S3Obj, objectList []types
 
 }
 
-func processLargeParts(ctx context.Context, headers []*S3Obj, objectList []types.Object, opts *SSTarS3Options) {
+func processLargeFiles(ctx context.Context, headers []*S3Obj, objectList []types.Object, opts *SSTarS3Options) {
 
 	svc := GetS3Client(ctx)
 	joinedParts := []*S3Obj{}
@@ -291,7 +289,7 @@ func processLargeParts(ctx context.Context, headers []*S3Obj, objectList []types
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
-	log.Printf("Finished\n%+v", finalObject)
+	log.Printf("Finished:\ns3://%s/%s", finalObject.Bucket, *finalObject.Key)
 	log.Printf("Deleting intermediate objects")
 	err = deleteObjectList(ctx, opts, joinedParts)
 	if err != nil {
@@ -406,56 +404,22 @@ func buildHeader(o, prev types.Object, addZeros bool) S3Obj {
 
 func buildHeaders(objectList []types.Object, frontPad bool, opts *SSTarS3Options) []*S3Obj {
 	headers := []*S3Obj{}
-	pad := make([]byte, beginningPad)
 	for i := 0; i < len(objectList); i++ {
 		o := objectList[i]
 		name := *o.Key
 		filename := filepath.Base(name)
-		if string(name[len(name)-1]) == "/" {
-			continue
+		prev := types.Object{}
+		addZero := true
+		if i > 0 {
+			prev = objectList[i-1]
+			addZero = false
 		}
-		var buff bytes.Buffer
-		tw := tar.NewWriter(&buff)
-		hdr := &tar.Header{
-			Name:       name,
-			Mode:       0600,
-			Size:       o.Size,
-			ModTime:    *o.LastModified,
-			ChangeTime: *o.LastModified,
-			AccessTime: time.Now(),
-			Format:     tar.FormatGNU,
-		}
-
-		if frontPad {
-			if i == 0 {
-				buff.Write(pad)
-			} else {
-				prev := objectList[i-1]
-				padSize := findPadding(prev.Size)
-				buff.Write(pad[:padSize])
-			}
-		}
-		if err := tw.WriteHeader(hdr); err != nil {
-			log.Fatal(err)
-		}
-		tw.Flush()
-		data := buff.Bytes()
-		atomic.AddInt64(&accum, int64(len(data)+int(o.Size)))
 		headerKey := filepath.Join(opts.DstPrefix, "headers", filename+".hdr")
-		ETag := fmt.Sprintf("%x", md5.Sum(data))
-		headers = append(headers, &S3Obj{
-			Bucket: opts.SrcBucket,
-			Object: types.Object{
-				Key:  &headerKey,
-				ETag: &ETag,
-				Size: int64(len(data)),
-			},
-			PartNum: i,
-			Data:    data,
-		})
-
+		newObject := buildHeader(o, prev, addZero)
+		newObject.PartNum = i
+		newObject.Key = aws.String(headerKey)
+		headers = append(headers, &newObject)
 	}
-
 	return headers
 }
 
