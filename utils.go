@@ -12,10 +12,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
+type contextKey string
+
 const (
-	blockSize    = int64(512)
-	beginningPad = 5 * 1024 * 1024
-	fileSizeMin  = beginningPad
+	contextKeyS3Client = contextKey("s3-client")
 )
 
 var (

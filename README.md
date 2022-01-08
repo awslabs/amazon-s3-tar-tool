@@ -28,6 +28,8 @@ If the files being tar-ed are larger than 5MB then it will create pairs of (file
 NewS3Object = [(5MB Zeroes + tar_header1) + (S3 Existing Object 1) + tar_header2 + (S3 Existing Object 1) ... (EOF 2x512 blocks)]
 ```
 
+### Limitations
+The cumulative size of the TAR must be over 5MB
 
 TODO: 
 Add a manifest file to be able to download individual files based on range requests.
