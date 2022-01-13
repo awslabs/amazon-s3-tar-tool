@@ -3,9 +3,14 @@ package s3tar
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"regexp"
+	"strconv"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -19,11 +24,10 @@ const (
 )
 
 var (
-	extractS3  = regexp.MustCompile(`s3:\/\/(.[^\/]*)\/(.*)`)
-	startBlock S3Obj
+	extractS3 = regexp.MustCompile(`s3:\/\/(.[^\/]*)\/(.*)`)
 )
 
-type SSTarS3Options struct {
+type S3TarS3Options struct {
 	SrcBucket    string
 	SrcPrefix    string
 	DstBucket    string
@@ -35,17 +39,88 @@ type SSTarS3Options struct {
 	Region       string
 }
 
+func findMinMaxPartRange(objectSize int64) (int64, int64, int64) {
+	const (
+		KB          int64 = 1000
+		partsLimit  int64 = 10000
+		partSizeMin int64 = KB * KB * 5
+		partSizeMax int64 = KB * KB * KB * 5
+		// optimalSize = 1024 * 1024 * 16
+	)
+
+	// partSizeMin = 1000 * 1000 * 5
+	// partSizeMax = 5e+9
+	// curSize = 5e+12 #5TB
+
+	curSize := objectSize
+	nPartsMax := partsLimit
+	var nPartsMaxSize int64 = 0
+	for {
+		nPartsMaxSize = curSize / nPartsMax
+		if nPartsMaxSize < partSizeMin {
+			nPartsMax = nPartsMax - 1
+			continue
+		}
+		break
+	}
+
+	var nPartsMin int64 = 1
+	var nPartsMinSize int64 = 0
+	for {
+		nPartsMinSize = curSize / nPartsMin
+		if nPartsMinSize > partSizeMax {
+			nPartsMin += 1
+			continue
+		}
+		break
+	}
+	mid := nPartsMax / 2
+	return nPartsMin, nPartsMax, mid
+}
+
 type PartsMessage struct {
 	Parts   []*S3Obj
 	PartNum int
 }
 
+func NewS3Obj() *S3Obj {
+	now := time.Now()
+	return &S3Obj{
+		Object: types.Object{
+			Key:          aws.String(""),
+			ETag:         aws.String(""),
+			LastModified: &now,
+		},
+	}
+}
+func NewS3ObjFromObject(o types.Object) *S3Obj {
+	return &S3Obj{Object: o}
+}
+
+func StringToInt64(s string) (int64, error) {
+	i, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return i, nil
+}
+
 type S3Obj struct {
 	types.Object
-	Bucket  string
-	PartNum int
-	Data    []byte
+	Bucket           string
+	PartNum          int
+	Data             []byte
+	NoHeaderRequired bool
 }
+
+func (s *S3Obj) AddData(data []byte) {
+	etag := fmt.Sprintf("%x", md5.Sum(data))
+	s.Data = data
+	s.Size = int64(len(data))
+	s.ETag = &etag
+}
+
+type VirtualArchive []*S3Obj
 
 type byPartNum []*S3Obj
 
@@ -63,6 +138,10 @@ func findPadding(offset int64) (n int64) {
 	return -offset & (blockSize - 1)
 }
 
+type Logger struct {
+	Level int
+}
+
 func ExtractBucketAndPath(s3url string) (bucket string, path string) {
 	parts := extractS3.FindAllStringSubmatch(s3url, -1)
 	if len(parts) > 0 && len(parts[0]) > 2 {
@@ -72,7 +151,7 @@ func ExtractBucketAndPath(s3url string) (bucket string, path string) {
 	return
 }
 
-func listAllObjects(ctx context.Context, client *s3.Client, Bucket, Prefix string) []types.Object {
+func listAllObjects(ctx context.Context, client *s3.Client, Bucket, Prefix string) []*S3Obj {
 	var objectList []types.Object
 	input := &s3.ListObjectsV2Input{
 		Bucket: &Bucket,
@@ -80,12 +159,12 @@ func listAllObjects(ctx context.Context, client *s3.Client, Bucket, Prefix strin
 	}
 	p := s3.NewListObjectsV2Paginator(client, input)
 	for {
-		if p.HasMorePages() == false {
+		if !p.HasMorePages() {
 			break
 		}
 		output, err := p.NextPage(ctx)
 		if err != nil {
-			log.Printf(err.Error())
+			log.Print(err.Error())
 			break
 		}
 		objectList = append(objectList, output.Contents...)
@@ -102,8 +181,18 @@ func listAllObjects(ctx context.Context, client *s3.Client, Bucket, Prefix strin
 		cleanList[ctr] = obj
 		ctr++
 	}
+	cleanList = cleanList[0:ctr]
 
-	return cleanList[0:ctr]
+	list := make([]*S3Obj, len(cleanList))
+	for i := 0; i < len(cleanList); i++ {
+		list[i] = &S3Obj{
+			Object:  cleanList[i],
+			Bucket:  Bucket,
+			PartNum: i + 1,
+		}
+	}
+
+	return list
 }
 
 func putObject(ctx context.Context, svc *s3.Client, bucket, key string, data []byte) (*s3.PutObjectOutput, error) {
@@ -137,11 +226,14 @@ func DeleteAllMultiparts(client *s3.Client, bucket string) error {
 }
 
 func GetS3Client(ctx context.Context) *s3.Client {
-	client, _ := ctx.Value(contextKeyS3Client).(*s3.Client)
-	return client
+	if client, ok := ctx.Value(contextKeyS3Client).(*s3.Client); ok {
+		return client
+	}
+	Fatalf(ctx, "GetS3Client not found")
+	return nil
 }
 
-func _deleteObjectList(ctx context.Context, opts *SSTarS3Options, objectList []*S3Obj) error {
+func _deleteObjectList(ctx context.Context, opts *S3TarS3Options, objectList []*S3Obj) error {
 	client := GetS3Client(ctx)
 	objects := make([]types.ObjectIdentifier, len(objectList))
 	for i := 0; i < len(objectList); i++ {
@@ -161,26 +253,13 @@ func _deleteObjectList(ctx context.Context, opts *SSTarS3Options, objectList []*
 		return err
 	}
 	if len(response.Errors) > 0 {
-		fmt.Errorf("Error deleting objects")
+		log.Fatal("Error deleting objects")
 	}
 	return nil
 
 }
 
-func deleteS3ObjectList(ctx context.Context, opts *SSTarS3Options, bucket string, objectList []types.Object) error {
-	objects := []*S3Obj{}
-	for _, x := range objectList {
-		objects = append(objects, &S3Obj{
-			Bucket: bucket,
-			Object: types.Object{
-				Key: x.Key,
-			},
-		})
-	}
-	return deleteObjectList(ctx, opts, objects)
-}
-
-func deleteObjectList(ctx context.Context, opts *SSTarS3Options, objectList []*S3Obj) error {
+func deleteObjectList(ctx context.Context, opts *S3TarS3Options, objectList []*S3Obj) error {
 	batch := 1000
 	for i := 0; i < len(objectList); i += batch {
 		start := i
@@ -195,4 +274,12 @@ func deleteObjectList(ctx context.Context, opts *SSTarS3Options, objectList []*S
 		}
 	}
 	return nil
+}
+
+func randomHex(n int) (string, error) {
+	bytes := make([]byte, n)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
 }

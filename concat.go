@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"path/filepath"
 	"time"
 
@@ -39,7 +38,7 @@ func (r *RecursiveConcat) CreateFirstBlock(ctx context.Context) {
 	now := time.Now()
 	output, err := putObject(ctx, r.Client, r.Bucket, key, pad)
 	if err != nil {
-		log.Fatal(err.Error())
+		Fatalf(ctx, err.Error())
 	}
 	r.block = S3Obj{
 		Bucket: r.Bucket,
@@ -120,7 +119,7 @@ func (r *RecursiveConcat) uploadPartCopy(object *S3Obj, uploadId string, bucket,
 }
 
 func (r *RecursiveConcat) mergePair(ctx context.Context, objectList []*S3Obj, trim int64, bucket, key string) (*S3Obj, error) {
-	complete := S3Obj{}
+	complete := NewS3Obj()
 
 	if len(objectList) > 2 {
 		return nil, fmt.Errorf("mergePair needs two or less *S3Obj")
@@ -131,8 +130,9 @@ func (r *RecursiveConcat) mergePair(ctx context.Context, objectList []*S3Obj, tr
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		return &complete, err
+		return complete, err
 	}
+
 	uploadId := *output.UploadId
 	parts := []types.CompletedPart{}
 	var accumSize int64 = 0
@@ -140,14 +140,18 @@ func (r *RecursiveConcat) mergePair(ctx context.Context, objectList []*S3Obj, tr
 		part := types.CompletedPart{}
 		var err error
 		if len(o.Data) > 0 {
+			// Debugf(ctx,"uploadPart key:%d", len(o.Data))
 			part, err = r.uploadPart(o, uploadId, bucket, key, int32(i+1))
 			accumSize += int64(len(o.Data))
 		} else {
+			// Debugf(ctx,"uploadPartCopy bucket:%s key:%s %d", o.Bucket, *o.Key, len(o.Data))
 			part, err = r.uploadPartCopy(o, uploadId, bucket, key, int32(i+1), trim, o.Size)
 			accumSize += (int64(o.Size) - trim)
 		}
 		if err != nil {
-			return &complete, err
+			Debugf(ctx, "some error 1")
+			// fmt.Print(err.Error())
+			return complete, err
 		}
 		parts = append(parts, part)
 	}
@@ -161,11 +165,11 @@ func (r *RecursiveConcat) mergePair(ctx context.Context, objectList []*S3Obj, tr
 		},
 	})
 	if err != nil {
-		return &complete, err
+		return complete, err
 	}
 
 	now := time.Now()
-	complete = S3Obj{
+	complete = &S3Obj{
 		Bucket: *completeOutput.Bucket,
 		Object: types.Object{
 			Key:          completeOutput.Key,
@@ -175,7 +179,7 @@ func (r *RecursiveConcat) mergePair(ctx context.Context, objectList []*S3Obj, tr
 		},
 	}
 
-	return &complete, nil
+	return complete, nil
 }
 
 func calculateFinalSize(objectList []*S3Obj) int64 {
@@ -188,24 +192,24 @@ func calculateFinalSize(objectList []*S3Obj) int64 {
 
 func (r *RecursiveConcat) ConcatObjects(ctx context.Context, objectList []*S3Obj, bucket, key string) (*S3Obj, error) {
 
-	if calculateFinalSize(objectList) < fileSizeMin+1 {
-		return &S3Obj{}, fmt.Errorf("Unable to concatenate these files, too small")
-	}
+	// if calculateFinalSize(objectList) < fileSizeMin+1 {
+	// 	return &S3Obj{}, fmt.Errorf("Unable to concatenate these files, too small")
+	// }
 
 	if len(objectList) == 0 {
-		return &S3Obj{}, fmt.Errorf("no elements passed to concat")
+		return NewS3Obj(), fmt.Errorf("no elements passed to concat")
 	}
 
 	trimStart := false
-	_objectList := objectList
 	if objectList[0].Size < fileSizeMin {
-		_objectList = append([]*S3Obj{&r.block}, objectList...)
+		objectList = append([]*S3Obj{&r.block}, objectList...)
 		trimStart = true
 	}
 
-	accum := _objectList[0]
-	for _, object := range _objectList[1:] {
+	accum := objectList[0]
+	for _, object := range objectList[1:] {
 		var err error
+		Debugf(ctx, "accum: s3://%s/%s <- s3://%s/%s data %d", accum.Bucket, *accum.Key, object.Bucket, *object.Key, len(object.Data))
 		accum, err = r.mergePair(ctx, []*S3Obj{accum, object}, 0, bucket, key)
 		if err != nil {
 			return nil, err
@@ -219,8 +223,9 @@ func (r *RecursiveConcat) ConcatObjects(ctx context.Context, objectList []*S3Obj
 
 	if trimStart {
 		var err error
-		accum, err = r.mergePair(ctx, []*S3Obj{accum}, fileSizeMin, bucket, key+".temp")
+		accum, err = r.mergePair(ctx, []*S3Obj{accum}, fileSizeMin, bucket, key)
 		if err != nil {
+			Debugf(ctx, "error 2\n%s %s", bucket, key)
 			return nil, err
 		}
 	}
@@ -230,7 +235,7 @@ func (r *RecursiveConcat) ConcatObjects(ctx context.Context, objectList []*S3Obj
 
 func checkRequiredArgs(o *RecursiveConcatOptions) {
 	if o.Bucket == "" || o.Key == "" || o.Region == "" {
-		log.Fatal("A Bucket and Key is required")
+		Fatalf(context.Background(), "A Bucket and Key is required")
 	}
 }
 
@@ -248,7 +253,7 @@ func resolveClient(o *RecursiveConcatOptions) {
 
 	cfg, err := config.LoadDefaultConfig(context.TODO(), opts...)
 	if err != nil {
-		log.Fatal(err.Error())
+		Fatalf(context.Background(), err.Error())
 	}
 
 	o.Client = s3.NewFromConfig(cfg)
