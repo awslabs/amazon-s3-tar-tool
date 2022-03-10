@@ -33,7 +33,22 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 
 	ctx := context.WithValue(incoming, contextKeyS3Client, svc)
 	start := time.Now()
-	objectList := listAllObjects(ctx, svc, opts.SrcBucket, opts.SrcPrefix)
+
+	var objectList []*S3Obj
+	if opts.SrcManifest != "" {
+		var err error
+		objectList, err = LoadCSV(ctx, opts.SrcManifest, opts.SkipManifestHeader)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+	} else if opts.SrcBucket != "" && opts.SrcPrefix != "" {
+		objectList = listAllObjects(ctx, svc, opts.SrcBucket, opts.SrcPrefix)
+	} else {
+		log.Fatal("Error with source data sourcing")
+	}
+
+	log.Printf("Processing %d files", len(objectList))
+
 	smallFiles := false
 
 	totalSize := int64(0)
@@ -45,8 +60,10 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 	}
 
 	if totalSize < fileSizeMin {
-		Fatalf(ctx, "Total size of all archives is less than 5MB. Include more files")
+		Fatalf(ctx, "Total size (%d) of all archives is less than 5MB. Include more files", totalSize)
 	}
+
+	log.Printf("%s %s %s", opts.DstBucket, opts.DstPrefix, opts.Region)
 
 	concatObj := NewS3Obj()
 	if smallFiles {
@@ -93,6 +110,7 @@ func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj,
 	}
 	manifestObj, _ := buildManifest(ctx, objectList)
 	firstPart := buildFirstPart(manifestObj.Data)
+	firstPart.Bucket = opts.DstBucket
 	objectList = append([]*S3Obj{firstPart}, objectList...)
 
 	wg := sizedwaitgroup.New(25)
@@ -379,6 +397,7 @@ func _processSmallFiles(ctx context.Context, objectList []*S3Obj, start, end int
 				prev = objectList[i-1]
 			}
 			header := buildHeader(objectList[i], prev, false)
+			header.Bucket = opts.DstBucket
 			pairs := []*S3Obj{&header, {
 				Object:  objectList[i].Object, // fix this
 				Bucket:  opts.SrcBucket,

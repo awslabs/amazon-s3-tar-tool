@@ -28,15 +28,17 @@ var (
 )
 
 type S3TarS3Options struct {
-	SrcBucket    string
-	SrcPrefix    string
-	DstBucket    string
-	DstPrefix    string
-	DstKey       string
-	Threads      uint
-	DeleteSource bool
-	SmallFiles   bool
-	Region       string
+	SrcManifest        string
+	SkipManifestHeader bool
+	SrcBucket          string
+	SrcPrefix          string
+	DstBucket          string
+	DstPrefix          string
+	DstKey             string
+	Threads            uint
+	DeleteSource       bool
+	SmallFiles         bool
+	Region             string
 }
 
 func findMinMaxPartRange(objectSize int64) (int64, int64, int64) {
@@ -93,6 +95,34 @@ func NewS3Obj() *S3Obj {
 		},
 	}
 }
+
+func NewS3ObjOptions(options ...func(*S3Obj)) *S3Obj {
+	now := time.Now()
+	obj := &S3Obj{
+		Object: types.Object{
+			Key:          aws.String(""),
+			ETag:         aws.String(""),
+			LastModified: &now,
+		},
+	}
+	for _, o := range options {
+		o(obj)
+	}
+	return obj
+}
+
+func WithBucketAndKey(bucket, key string) func(*S3Obj) {
+	return func(o *S3Obj) {
+		o.Bucket = bucket
+		o.Key = &key
+	}
+}
+func WithSize(size int64) func(*S3Obj) {
+	return func(o *S3Obj) {
+		o.Size = size
+	}
+}
+
 func NewS3ObjFromObject(o types.Object) *S3Obj {
 	return &S3Obj{Object: o}
 }

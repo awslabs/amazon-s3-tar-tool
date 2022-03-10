@@ -23,6 +23,9 @@ func main() {
 	var deleteSource bool
 	var region string
 	var logLevel int
+	var manifestPath string
+	var skipManifestHeader bool
+
 	rand.Seed(time.Now().UnixNano())
 	app := &cli.App{
 		Flags: []cli.Flag{
@@ -119,11 +122,23 @@ func main() {
 						Usage:       "destination region",
 						Destination: &dstRegion,
 					},
+					&cli.StringFlag{
+						Name:        "manifest",
+						Value:       "",
+						Usage:       "manifest file with bucket,key per line to process",
+						Destination: &manifestPath,
+					},
 					&cli.UintFlag{
 						Name:        "goroutines",
 						Value:       20,
 						Usage:       "number of goroutines",
 						Destination: &threads,
+					},
+					&cli.BoolFlag{
+						Name:        "skipManifestHeader",
+						Value:       false,
+						Usage:       "skip the first line of the manifest",
+						Destination: &skipManifestHeader,
 					},
 					&cli.BoolFlag{
 						Name:        "delete-source",
@@ -136,18 +151,25 @@ func main() {
 				Usage:   "specify a source folder in S3 and a destination in a separate folder",
 				Aliases: []string{"c"},
 				Action: func(c *cli.Context) error {
-					if src == "" || dst == "" {
-						log.Fatalf("src or dst missing")
+					if dst == "" {
+						log.Fatalf("dst path missing")
+					}
+					if src == "" && manifestPath == "" {
+						log.Fatalf("src or manifest flag missing")
 					}
 
 					s3opts := &s3tar.S3TarS3Options{
-						Threads:      threads,
-						DeleteSource: deleteSource,
-						Region:       region,
+						SrcManifest:        manifestPath,
+						SkipManifestHeader: skipManifestHeader,
+						Threads:            threads,
+						DeleteSource:       deleteSource,
+						Region:             region,
 					}
-					s3opts.SrcBucket, s3opts.SrcPrefix = s3tar.ExtractBucketAndPath(src)
 					s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(dst)
 					s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
+					if dst != "" {
+						s3opts.SrcBucket, s3opts.SrcPrefix = s3tar.ExtractBucketAndPath(src)
+					}
 
 					ctx = s3tar.SetLogLevel(ctx, logLevel)
 

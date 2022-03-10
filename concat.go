@@ -208,6 +208,9 @@ func (r *RecursiveConcat) ConcatObjects(ctx context.Context, objectList []*S3Obj
 
 	accum := objectList[0]
 	for _, object := range objectList[1:] {
+		if object.Bucket == "" {
+			object.Bucket = bucket
+		}
 		var err error
 		Debugf(ctx, "accum: s3://%s/%s <- s3://%s/%s data %d", accum.Bucket, *accum.Key, object.Bucket, *object.Key, len(object.Data))
 		accum, err = r.mergePair(ctx, []*S3Obj{accum, object}, 0, bucket, key)
