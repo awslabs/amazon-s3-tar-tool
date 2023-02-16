@@ -25,8 +25,6 @@ func buildManifest(ctx context.Context, objectList []*S3Obj) (*S3Obj, *S3Obj) {
 	manifestHeader.Bucket = objectList[0].Bucket
 	manifestObj.Bucket = objectList[0].Bucket
 
-	log.Printf("XXX %s TTT %s", manifestObj.Bucket, manifestHeader.Bucket)
-
 	return manifestObj, &manifestHeader
 }
 

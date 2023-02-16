@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -25,6 +26,7 @@ func main() {
 	var logLevel int
 	var manifestPath string
 	var skipManifestHeader bool
+	var checksumAlgorithm string
 
 	rand.Seed(time.Now().UnixNano())
 	app := &cli.App{
@@ -79,21 +81,37 @@ func main() {
 						Usage:       "full path for object as a s3 url",
 						Destination: &dst,
 					},
+					&cli.StringFlag{
+						Name:        "checksum",
+						Value:       "",
+						Usage:       "checksum algorithm (SHA1|SHA256|CRC32|CRC32C)",
+						Destination: &checksumAlgorithm,
+					},
 				},
 				Name:    "extract",
 				Usage:   "extract tar file",
 				Aliases: []string{"x"},
 				Action: func(c *cli.Context) error {
+					if src == "" && manifestPath == "" {
+						log.Fatalf("src or manifest flag missing")
+					}
+					if dst == "" {
+						log.Fatalf("dst path missing")
+					}
 					cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
 					if err != nil {
 						log.Fatal(err.Error())
 					}
 					svc := s3.NewFromConfig(cfg)
 
+					checksumAlgorithm = strings.ToUpper(checksumAlgorithm)
+					validateChecksumAlgorithm(checksumAlgorithm)
+
 					s3opts := &s3tar.S3TarS3Options{
-						Threads:      threads,
-						DeleteSource: deleteSource,
-						Region:       region,
+						Threads:           threads,
+						DeleteSource:      deleteSource,
+						Region:            region,
+						ChecksumAlgorithm: checksumAlgorithm,
 					}
 					s3opts.SrcBucket, s3opts.SrcPrefix = s3tar.ExtractBucketAndPath(src)
 					s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(dst)
@@ -151,11 +169,11 @@ func main() {
 				Usage:   "specify a source folder in S3 and a destination in a separate folder",
 				Aliases: []string{"c"},
 				Action: func(c *cli.Context) error {
-					if dst == "" {
-						log.Fatalf("dst path missing")
-					}
 					if src == "" && manifestPath == "" {
 						log.Fatalf("src or manifest flag missing")
+					}
+					if dst == "" {
+						log.Fatalf("dst path missing")
 					}
 
 					s3opts := &s3tar.S3TarS3Options{
@@ -189,5 +207,22 @@ func main() {
 	err := app.Run(os.Args)
 	if err != nil {
 		log.Fatal(err)
+	}
+}
+
+func validateChecksumAlgorithm(checksumAlgorithm string) {
+	switch checksumAlgorithm {
+	case "":
+		return
+	case "SHA256":
+		return
+	case "SHA1":
+		return
+	case "CRC32":
+		return
+	case "CRC32C":
+		return
+	default:
+		log.Fatalf("checksum %s not supported. available options (sha1|sha256|crc32|crc32c)", checksumAlgorithm)
 	}
 }

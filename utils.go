@@ -39,6 +39,7 @@ type S3TarS3Options struct {
 	DeleteSource       bool
 	SmallFiles         bool
 	Region             string
+	ChecksumAlgorithm  string
 }
 
 func findMinMaxPartRange(objectSize int64) (int64, int64, int64) {

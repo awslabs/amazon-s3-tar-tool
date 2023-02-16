@@ -27,7 +27,7 @@ func Extract(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) error {
 		wg.Add()
 		go func(metadata *FileMetadata) {
 			dstKey := filepath.Join(opts.DstPrefix, metadata.Filename)
-			err = extractRange(ctx, svc, opts.SrcBucket, opts.SrcPrefix, dstKey, metadata.Start, metadata.Size)
+			err = extractRange(ctx, svc, opts.SrcBucket, opts.SrcPrefix, dstKey, metadata.Start, metadata.Size, opts)
 			if err != nil {
 				Fatalf(ctx, err.Error())
 			}
@@ -39,11 +39,12 @@ func Extract(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) error {
 	return nil
 }
 
-func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstKey string, start, size int64) error {
+func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstKey string, start, size int64, opts *S3TarS3Options) error {
 
 	output, err := svc.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(dstKey),
+		Bucket:            aws.String(bucket),
+		Key:               aws.String(dstKey),
+		ChecksumAlgorithm: types.ChecksumAlgorithm(opts.ChecksumAlgorithm),
 	})
 	if err != nil {
 		return err

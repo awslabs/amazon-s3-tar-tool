@@ -237,8 +237,14 @@ func (r *RecursiveConcat) ConcatObjects(ctx context.Context, objectList []*S3Obj
 }
 
 func checkRequiredArgs(o *RecursiveConcatOptions) {
-	if o.Bucket == "" || o.Key == "" || o.Region == "" {
-		Fatalf(context.Background(), "A Bucket and Key is required")
+	if o.Bucket == "" {
+		Fatalf(context.Background(), "Bucket is required")
+	}
+	if o.Key == "" {
+		Fatalf(context.Background(), "Key is required")
+	}
+	if o.Region == "" {
+		Fatalf(context.Background(), "Region is required")
 	}
 }
 
