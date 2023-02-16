@@ -42,9 +42,8 @@ func Extract(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) error {
 func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstKey string, start, size int64, opts *S3TarS3Options) error {
 
 	output, err := svc.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
-		Bucket:            aws.String(bucket),
-		Key:               aws.String(dstKey),
-		ChecksumAlgorithm: types.ChecksumAlgorithm(opts.ChecksumAlgorithm),
+		Bucket: aws.String(bucket),
+		Key:    aws.String(dstKey),
 	})
 	if err != nil {
 		return err
