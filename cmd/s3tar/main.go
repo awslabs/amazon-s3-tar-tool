@@ -1,3 +1,6 @@
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
@@ -8,9 +11,9 @@ import (
 	"path/filepath"
 	"time"
 
+	s3tar "github.com/aws-samples/amazon-s3-tar-tool"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/rem7/s3tar"
 	"github.com/urfave/cli/v2"
 )
 
