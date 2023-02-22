@@ -17,27 +17,25 @@ import (
 )
 
 type RecursiveConcat struct {
-	Client       *s3.Client
-	Region       string
-	Bucket       string
-	Key          string
-	DeleteOnExit bool
-	block        S3Obj
+	Client    *s3.Client
+	Region    string
+	Bucket    string
+	DstPrefix string
+	block     S3Obj
 }
 
 type RecursiveConcatOptions struct {
-	Client       *s3.Client
-	Region       string
-	Bucket       string
-	Key          string
-	DeleteOnExit bool
+	Client    *s3.Client
+	Region    string
+	Bucket    string
+	DstPrefix string
 }
 
 // type RecursiveConcatOption func(r *RecursiveConcat)
 
 func (r *RecursiveConcat) CreateFirstBlock(ctx context.Context) {
 	//randomize?
-	key := filepath.Join("parts", "min-size-block")
+	key := filepath.Join(r.DstPrefix, "parts", "min-size-block")
 	now := time.Now()
 	output, err := putObject(ctx, r.Client, r.Bucket, key, pad)
 	if err != nil {
@@ -67,11 +65,10 @@ func NewRecursiveConcat(ctx context.Context, options RecursiveConcatOptions, opt
 	resolveClient(&options)
 
 	rc := &RecursiveConcat{
-		Client:       options.Client,
-		Region:       options.Region,
-		Bucket:       options.Bucket,
-		Key:          options.Key,
-		DeleteOnExit: options.DeleteOnExit,
+		Client:    options.Client,
+		Region:    options.Region,
+		Bucket:    options.Bucket,
+		DstPrefix: options.DstPrefix,
 	}
 	rc.CreateFirstBlock(ctx)
 
@@ -243,8 +240,8 @@ func checkRequiredArgs(o *RecursiveConcatOptions) {
 	if o.Bucket == "" {
 		Fatalf(context.Background(), "Bucket is required")
 	}
-	if o.Key == "" {
-		Fatalf(context.Background(), "Key is required")
+	if o.DstPrefix == "" {
+		Fatalf(context.Background(), "DstPrefix is required")
 	}
 	if o.Region == "" {
 		Fatalf(context.Background(), "Region is required")

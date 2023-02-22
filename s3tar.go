@@ -66,15 +66,13 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 		Fatalf(ctx, "Total size (%d) of all archives is less than 5MB. Include more files", totalSize)
 	}
 
-	log.Printf("%s %s %s", opts.DstBucket, opts.DstPrefix, opts.Region)
-
 	concatObj := NewS3Obj()
 	if smallFiles {
 		var err error
 		rc, err = NewRecursiveConcat(ctx, RecursiveConcatOptions{
-			Bucket: opts.DstBucket,
-			Key:    opts.DstPrefix,
-			Region: opts.Region,
+			Bucket:    opts.DstBucket,
+			DstPrefix: opts.DstPrefix,
+			Region:    opts.Region,
 		})
 		if err != nil {
 			log.Fatal(err.Error())
@@ -88,14 +86,14 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 		concatObj = processLargeFiles(ctx, svc, objectList, opts)
 	}
 
-	Debugf(ctx, "deleting all intermediate objects")
+	Infof(ctx, "deleting all intermediate objects")
 	for _, path := range []string{filepath.Join(opts.DstPrefix, "parts"),
 		filepath.Join(opts.DstPrefix, "headers")} {
 		deleteList := listAllObjects(ctx, svc, opts.DstBucket, path)
 		deleteObjectList(ctx, opts, deleteList)
 	}
 
-	Debugf(ctx, "Final Object: s3://%s/%s", concatObj.Bucket, *concatObj.Key)
+	Infof(ctx, "Final Object: s3://%s/%s", concatObj.Bucket, *concatObj.Key)
 	elapsed := time.Since(start)
 	Infof(ctx, "Time elapsed: %s", elapsed)
 
@@ -104,9 +102,9 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) *S3Obj {
 	ctx = context.WithValue(ctx, contextKeyS3Client, svc)
 	concater, err := NewRecursiveConcat(ctx, RecursiveConcatOptions{
-		Bucket: opts.DstBucket,
-		Key:    opts.DstPrefix,
-		Region: opts.Region,
+		Bucket:    opts.DstBucket,
+		DstPrefix: opts.DstPrefix,
+		Region:    opts.Region,
 	})
 	if err != nil {
 		log.Fatal(err.Error())
@@ -141,7 +139,7 @@ func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj,
 		}
 		pairs := []*S3Obj{p1, p2}
 		name := fmt.Sprintf("%d.part-%d.hdr", i, next)
-		key := filepath.Join(opts.DstPrefix, name)
+		key := filepath.Join(opts.DstPrefix, "parts", name)
 		wg.Add()
 		go func(pairs []*S3Obj, key string, partNum int) {
 			res, err := concater.ConcatObjects(ctx, pairs, opts.DstBucket, key)
@@ -165,7 +163,7 @@ func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj,
 	}
 	sort.Sort(byPartNum(results))
 
-	tempKey := filepath.Join(opts.DstPrefix, opts.DstKey+".temp")
+	tempKey := filepath.Join(opts.DstPrefix, "parts", "output.temp")
 	concatObj, err := concatObjects(ctx, svc, 0, results, opts.DstBucket, tempKey)
 	if err != nil {
 		Fatalf(ctx, err.Error())
@@ -197,7 +195,6 @@ func redistribute(ctx context.Context, obj *S3Obj, trimoffset int64, bucket, key
 
 	partSize := finalSize / mid
 	Warnf(ctx, "parts: %d", mid)
-	Warnf(ctx, "rrrrrrrr:\t%d", r)
 	Warnf(ctx, "FinalSize:\t%d", finalSize)
 	Warnf(ctx, "total:\t%d", partSize*mid)
 	Warnf(ctx, "PartSize:\t%d", partSize)

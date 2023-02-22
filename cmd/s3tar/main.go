@@ -41,7 +41,7 @@ func main() {
 			},
 			&cli.IntFlag{
 				Name:        "log-level",
-				Value:       0,
+				Value:       1,
 				Usage:       "log-level",
 				Destination: &logLevel,
 				// EnvVars:     []string{""},
