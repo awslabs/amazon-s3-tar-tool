@@ -30,6 +30,7 @@ var (
 	extractS3 = regexp.MustCompile(`s3:\/\/(.[^\/]*)\/(.*)`)
 )
 
+// S3TarS3Options options to create an archive
 type S3TarS3Options struct {
 	SrcManifest        string
 	SkipManifestHeader bool
@@ -175,6 +176,7 @@ type Logger struct {
 	Level int
 }
 
+// ExtractBucketAndPath helper function to extract bucket and key from s3://bucket/prefix/key URLs
 func ExtractBucketAndPath(s3url string) (bucket string, path string) {
 	parts := extractS3.FindAllStringSubmatch(s3url, -1)
 	if len(parts) > 0 && len(parts[0]) > 2 {
@@ -238,6 +240,7 @@ func putObject(ctx context.Context, svc *s3.Client, bucket, key string, data []b
 	return svc.PutObject(ctx, input)
 }
 
+// DeleteAllMultiparts helper function to clear ALL MultipartUploads in a bucket. This will delete all incomplete (or in progress) MPUs for a bucket.
 func DeleteAllMultiparts(client *s3.Client, bucket string) error {
 	output, err := client.ListMultipartUploads(context.TODO(), &s3.ListMultipartUploadsInput{Bucket: &bucket})
 	if err != nil {

@@ -5,197 +5,174 @@ package main
 
 import (
 	"context"
-	"log"
-	"math/rand"
-	"os"
-	"path/filepath"
-	"time"
-
-	s3tar "github.com/aws-samples/amazon-s3-tar-tool"
+	"fmt"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3tar "github.com/awslabs/amazon-s3-tar-tool"
 	"github.com/urfave/cli/v2"
+	"log"
+	"os"
+	"path/filepath"
 )
 
 func main() {
 	ctx := s3tar.SetupLogger(context.Background())
-	var src string
-	var dst string
-	var dstRegion string
-	var threads uint
-	var deleteSource bool
+	var create bool
+	var extract bool
 	var region string
-	var logLevel int
-	var manifestPath string
+	var archiveFile string // file flag
+	var threads uint
 	var skipManifestHeader bool
+	var manifestPath string // file flag
 
-	rand.Seed(time.Now().UnixNano())
 	app := &cli.App{
+		UseShortOptionHandling: true,
+		Authors: []*cli.Author{
+			&cli.Author{
+				Name:  "Yanko Bolanos",
+				Email: "bolyanko@amazon.com",
+			},
+		},
+		UsageText: "tar --region us-west-2 [-c --create] | [-x --extract] [-v] -f s3://bucket/prefix/file.tar s3://bucket/prefix",
+		Copyright: "Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.",
 		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:        "create",
+				Value:       false,
+				Usage:       "create an archive",
+				Aliases:     []string{"c"},
+				Destination: &create,
+			},
+			&cli.BoolFlag{
+				Name:        "extract",
+				Value:       false,
+				Usage:       "extract an archive",
+				Aliases:     []string{"x"},
+				Destination: &extract,
+			},
+			&cli.BoolFlag{
+				Name:    "verbose",
+				Value:   false,
+				Usage:   "verbose level v, vv, vvv",
+				Aliases: []string{"v"},
+			},
 			&cli.StringFlag{
 				Name:        "region",
 				Value:       "",
-				Usage:       "region to initialize the sdk",
+				Usage:       "specify region",
 				Destination: &region,
-				EnvVars:     []string{"AWS_DEFAULT_REGION", "AWS_REGION"},
 			},
-			&cli.IntFlag{
-				Name:        "log-level",
-				Value:       1,
-				Usage:       "log-level",
-				Destination: &logLevel,
-				// EnvVars:     []string{""},
+			&cli.StringFlag{
+				Name:        "file",
+				Value:       "",
+				Usage:       "file",
+				Aliases:     []string{"f"},
+				Destination: &archiveFile,
+			},
+
+			&cli.UintFlag{
+				Name:        "goroutines",
+				Value:       20,
+				Usage:       "number of goroutines",
+				Destination: &threads,
+			},
+			&cli.BoolFlag{
+				Name:        "skipManifestHeader",
+				Value:       false,
+				Usage:       "skip the first line of the manifest",
+				Destination: &skipManifestHeader,
+			},
+			&cli.StringFlag{
+				Name:        "manifest",
+				Value:       "",
+				Usage:       "manifest file with bucket,key per line to process",
+				Destination: &manifestPath,
+				Aliases:     []string{"m"},
 			},
 		},
-		Commands: []*cli.Command{
-			{
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:        "bucket",
-						Value:       "",
-						Usage:       "bucket to clear multiparts",
-						Destination: &src,
-					},
-				},
-				Name:  "delete",
-				Usage: "delete all multiparts in a bucket",
-				Action: func(c *cli.Context) error {
-					cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
-					if err != nil {
-						log.Fatal(err.Error())
-					}
-					svc := s3.NewFromConfig(cfg)
-					return s3tar.DeleteAllMultiparts(svc, src)
-				},
-			},
-			{
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:        "src",
-						Value:       "",
-						Usage:       "local directory or s3 url",
-						Destination: &src,
-					},
-					&cli.StringFlag{
-						Name:        "dst",
-						Value:       "",
-						Usage:       "full path for object as a s3 url",
-						Destination: &dst,
-					},
-				},
-				Name:    "extract",
-				Usage:   "extract tar file",
-				Aliases: []string{"x"},
-				Action: func(c *cli.Context) error {
-					if src == "" && manifestPath == "" {
-						log.Fatalf("src or manifest flag missing")
-					}
-					if dst == "" {
-						log.Fatalf("dst path missing")
-					}
-					cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
-					if err != nil {
-						log.Fatal(err.Error())
-					}
-					svc := s3.NewFromConfig(cfg)
+		Action: func(cCtx *cli.Context) error {
+			logLevel := parseLogLevel(cCtx.Count("verbose"))
+			if region == "" {
+				exitError(1, "region is missing\n")
+			}
+			if archiveFile == "" {
+				exitError(2, "-f is a required flag\n")
+			}
+			if create {
+				src := cCtx.Args().First() // TODO implement dir list
+				if src == "" && manifestPath == "" {
+					exitError(4, "source directory or manifest file is required.\n")
+				}
+				s3opts := &s3tar.S3TarS3Options{
+					SrcManifest:        manifestPath,
+					SkipManifestHeader: skipManifestHeader,
+					Threads:            threads,
+					DeleteSource:       false,
+					Region:             region,
+				}
+				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(archiveFile)
+				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
+				s3opts.SrcBucket, s3opts.SrcPrefix = s3tar.ExtractBucketAndPath(src)
 
-					s3opts := &s3tar.S3TarS3Options{
-						Threads:      threads,
-						DeleteSource: deleteSource,
-						Region:       region,
-					}
-					s3opts.SrcBucket, s3opts.SrcPrefix = s3tar.ExtractBucketAndPath(src)
-					s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(dst)
-					s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
-					ctx = s3tar.SetLogLevel(ctx, logLevel)
-					return s3tar.Extract(ctx, svc, s3opts)
-				},
-			},
-			{
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:        "src",
-						Value:       "",
-						Usage:       "local directory or s3 url",
-						Destination: &src,
-					},
-					&cli.StringFlag{
-						Name:        "dst",
-						Value:       "",
-						Usage:       "full path for object as a s3 url",
-						Destination: &dst,
-					},
-					&cli.StringFlag{
-						Name:        "dst-region",
-						Value:       "us-west-2",
-						Usage:       "destination region",
-						Destination: &dstRegion,
-					},
-					&cli.StringFlag{
-						Name:        "manifest",
-						Value:       "",
-						Usage:       "manifest file with bucket,key per line to process",
-						Destination: &manifestPath,
-					},
-					&cli.UintFlag{
-						Name:        "goroutines",
-						Value:       20,
-						Usage:       "number of goroutines",
-						Destination: &threads,
-					},
-					&cli.BoolFlag{
-						Name:        "skipManifestHeader",
-						Value:       false,
-						Usage:       "skip the first line of the manifest",
-						Destination: &skipManifestHeader,
-					},
-					&cli.BoolFlag{
-						Name:        "delete-source",
-						Value:       false,
-						Usage:       "this will delete the original data. TODO implement",
-						Destination: &deleteSource,
-					},
-				},
-				Name:    "create",
-				Usage:   "specify a source folder in S3 and a destination in a separate folder",
-				Aliases: []string{"c"},
-				Action: func(c *cli.Context) error {
-					if src == "" && manifestPath == "" {
-						log.Fatalf("src or manifest flag missing")
-					}
-					if dst == "" {
-						log.Fatalf("dst path missing")
-					}
+				ctx = s3tar.SetLogLevel(ctx, logLevel)
 
-					s3opts := &s3tar.S3TarS3Options{
-						SrcManifest:        manifestPath,
-						SkipManifestHeader: skipManifestHeader,
-						Threads:            threads,
-						DeleteSource:       deleteSource,
-						Region:             region,
-					}
-					s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(dst)
-					s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
-					if dst != "" {
-						s3opts.SrcBucket, s3opts.SrcPrefix = s3tar.ExtractBucketAndPath(src)
-					}
+				cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+				if err != nil {
+					log.Fatal(err.Error())
+				}
+				svc := s3.NewFromConfig(cfg)
+				s3tar.ServerSideTar(ctx, svc, s3opts)
+			} else if extract {
+				fmt.Printf("extract tar\n")
 
-					ctx = s3tar.SetLogLevel(ctx, logLevel)
+				if archiveFile == "" {
+					exitError(5, "file is missing")
+				}
+				dst := cCtx.Args().First()
+				if dst == "" {
+					log.Fatalf("dst path missing")
+				}
+				cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
+				if err != nil {
+					log.Fatal(err.Error())
+				}
+				svc := s3.NewFromConfig(cfg)
 
-					cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
-					if err != nil {
-						log.Fatal(err.Error())
-					}
-					svc := s3.NewFromConfig(cfg)
-					s3tar.ServerSideTar(ctx, svc, s3opts)
-					return nil
-				},
-			},
+				s3opts := &s3tar.S3TarS3Options{
+					Threads:      threads,
+					DeleteSource: false,
+					Region:       region,
+				}
+				s3opts.SrcBucket, s3opts.SrcPrefix = s3tar.ExtractBucketAndPath(archiveFile)
+				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(dst)
+				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
+				ctx = s3tar.SetLogLevel(ctx, logLevel)
+				return s3tar.Extract(ctx, svc, s3opts)
+			} else {
+				exitError(3, "operation not implemented, provide create or extract flag\n")
+			}
+
+			return nil
 		},
 	}
 
-	err := app.Run(os.Args)
-	if err != nil {
+	if err := app.Run(os.Args); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func parseLogLevel(count int) int {
+	verboseCount := count - 1
+	if verboseCount < 0 {
+		verboseCount = 0
+	}
+	if verboseCount > 3 {
+		verboseCount = 3
+	}
+	return verboseCount
+}
+
+func exitError(code int, format string, v ...any) {
+	fmt.Printf(format, v...)
+	os.Exit(code)
 }

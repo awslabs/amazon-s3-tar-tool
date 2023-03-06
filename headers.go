@@ -42,9 +42,13 @@ func buildHeader(o, prev *S3Obj, addZeros bool) S3Obj {
 		buff.Write(pad[:padSize])
 	}
 	if err := tw.WriteHeader(hdr); err != nil {
+		log.Println("here...")
 		log.Fatal(err)
 	}
-	tw.Flush()
+	if err := tw.Flush(); err != nil {
+		// we ignore this error, the tar library will complain that we
+		// didn't write the whole file. This part is already on Amazon S3
+	}
 	data := buff.Bytes()
 	atomic.AddInt64(&accum, int64(len(data)+int(o.Size)))
 	ETag := fmt.Sprintf("%x", md5.Sum(data))
@@ -93,7 +97,7 @@ func processHeaders(ctx context.Context, objectList []*S3Obj, frontPad bool) []*
 	if lastblockSize == 0 {
 		lastblockSize = blockSize
 	}
-	lastblockSize += (blockSize * 2)
+	lastblockSize += blockSize * 2
 	lastBytes := make([]byte, lastblockSize)
 	lastHeader := NewS3Obj()
 	lastHeader.AddData(lastBytes)

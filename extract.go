@@ -17,6 +17,8 @@ import (
 	"github.com/remeh/sizedwaitgroup"
 )
 
+// Extract will unpack the tar file from source to target without downloading the archive locally.
+// The archive has to be created with the manifest option.
 func Extract(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) error {
 
 	manifest, err := extractCSVManifest(ctx, svc, opts.SrcBucket, opts.SrcPrefix)

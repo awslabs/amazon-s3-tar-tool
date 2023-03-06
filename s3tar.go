@@ -90,7 +90,10 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 	for _, path := range []string{filepath.Join(opts.DstPrefix, "parts"),
 		filepath.Join(opts.DstPrefix, "headers")} {
 		deleteList := listAllObjects(ctx, svc, opts.DstBucket, path)
-		deleteObjectList(ctx, opts, deleteList)
+		err := deleteObjectList(ctx, opts, deleteList)
+		if err != nil {
+			Warnf(ctx, "Unable to delete intermediate objects at: %s %s", opts.DstBucket, path)
+		}
 	}
 
 	Infof(ctx, "Final Object: s3://%s/%s", concatObj.Bucket, *concatObj.Key)

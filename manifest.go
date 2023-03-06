@@ -70,7 +70,9 @@ func createCSVManifest(offset int64, headers []*S3Obj, objectList []*S3Obj) *byt
 		currLocation += objectList[i].Size
 	}
 	cw := csv.NewWriter(&buf)
-	cw.WriteAll(manifest)
+	if err := cw.WriteAll(manifest); err != nil {
+		log.Fatal(err.Error())
+	}
 	cw.Flush()
 
 	return &buf
@@ -92,7 +94,10 @@ func buildFirstPart(csvData []byte) *S3Obj {
 	if err := tw.WriteHeader(hdr); err != nil {
 		log.Fatal(err)
 	}
-	tw.Flush()
+	if err := tw.Flush(); err != nil {
+		// we ignore this error, the tar library will complain that we
+		// didn't write the whole file. This part is already on Amazon S3
+	}
 	buf.Write(csvData)
 
 	padding := findPadding(int64(len(csvData)))
