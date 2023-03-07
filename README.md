@@ -8,18 +8,23 @@ Using the Multipart Uploads API, in particular `UploadPartCopy` API, we can copy
 
 ## Usage
 
-To create a tarball
+The syntax for creating and extracting tarballs remains similar to traditional tar tools:
 ```bash
-s3tar --region us-west-2 create --src=s3://mybucket/some/files/ --dst=s3://mybucket/archives/some_files.tar
+   tar --region region [-c --create] | [-x --extract] [-v] -f s3://bucket/prefix/file.tar s3://bucket/prefix
 ```
 
-## Manifest
+To create a tarball
+```bash
+s3tar --region us-west-2 -cvf s3://bucket/prefix/archive.tar s3://bucket/files/
+```
+
+### Manifest & Extract
 Tarballs created with this tool have the option to generate a manifest file. This manifest file is at the beginning of the file and it contains a csv line per file with the `name, byte location, content-length, Etag`. This added functionality allows archives that are created this way to also be extracted without having to download the tar object. 
 
 Extracting a tarball that was created with a manifest file:
 
 ```bash 
-s3tar --region us-west-2 extract --src s3://mybucket/archives/some_files.tar --dst s3://mybucket/some_files-extract/
+s3tar --region us-west-2 -xvf s3://bucket/prefix/archive.tar s3://bucket/destination/
 ```
 
 ## How the tool works
