@@ -17,6 +17,11 @@ import (
 	"github.com/remeh/sizedwaitgroup"
 )
 
+const (
+	gnuTarHeaderSize = blockSize * 1
+	paxTarHeaderSize = blockSize * 3
+)
+
 // Extract will unpack the tar file from source to target without downloading the archive locally.
 // The archive has to be created with the manifest option.
 func Extract(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) error {
@@ -100,20 +105,40 @@ type FileMetadata struct {
 	Size     int64
 }
 
-func extractCSVManifest(ctx context.Context, svc *s3.Client, bucket, key string) (Manifest, error) {
-	var m Manifest
-	// extract the first 512 bytes which contain the tar header
-	output, err := getObjectRange(ctx, svc, bucket, key, 0, 512-1)
+func extractTarHeader(ctx context.Context, svc *s3.Client, bucket, key string) (*tar.Header, int64, error) {
+
+	headerSize := gnuTarHeaderSize
+	ctr := 0
+
+retry:
+
+	if ctr >= 2 {
+		return nil, 0, fmt.Errorf("unable to parse header from TAR")
+	}
+	ctr += 1
+
+	output, err := getObjectRange(ctx, svc, bucket, key, 0, headerSize-1)
 	if err != nil {
-		return m, err
+		return nil, 0, err
 	}
 	tr := tar.NewReader(output)
 	hdr, err := tr.Next()
 	if err != nil {
+		headerSize = paxTarHeaderSize
+		goto retry
+	}
+	return hdr, headerSize, err
+}
+
+func extractCSVManifest(ctx context.Context, svc *s3.Client, bucket, key string) (Manifest, error) {
+	var m Manifest
+
+	hdr, offset, err := extractTarHeader(ctx, svc, bucket, key)
+	if err != nil {
 		return m, err
 	}
 	// extract the csv now that we know the length of the CSV
-	output, err = getObjectRange(ctx, svc, bucket, key, 512, 512+hdr.Size-1)
+	output, err := getObjectRange(ctx, svc, bucket, key, offset, offset+hdr.Size-1)
 	if err != nil {
 		return m, err
 	}

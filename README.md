@@ -1,6 +1,6 @@
 # Amazon S3 Tar Tool
 
-A utility tool to create a tarball of existing objects in Amazon S3.
+s3tar is utility tool to create a tarball of existing objects in Amazon S3.
 
 s3tar allows customers to group existing Amazon S3 objects into TAR files without having to download the files. This cli tool leverages existing Amazon S3 APIs to create the archives on Amazon S3 that can be later transitioned to any of the cold storage tiers. The files generated follow the tar file format and can be extracted with standard tar tools.
 
@@ -8,14 +8,45 @@ Using the Multipart Uploads API, in particular `UploadPartCopy` API, we can copy
 
 ## Usage
 
+The tool follows the tar syntax for creation and extraction of tarballs with a few additions to support Amazon S3 operations. 
+
+| flag          | description                                                           | required             |
+|---------------|-----------------------------------------------------------------------|----------------------|
+| -c            | create                                                                | yes, unless using -x |
+| -x            | extract                                                               | yes, unless using -c |
+| -f            | file that will be generated or extracted: s3://bucket/prefix/file.tar | yes                  |
+| -m            | manifest input                                                        | no                   |
+| --region      | aws region where the bucket is                                        | yes                  |
+| -v, -vv, -vvv | level of verbose                                                      | no                   |    
+| --format      | Tar format PAX or GNU, default is PAX                                 | no                   |    
+
 The syntax for creating and extracting tarballs remains similar to traditional tar tools:
 ```bash
    tar --region region [-c --create] | [-x --extract] [-v] -f s3://bucket/prefix/file.tar s3://bucket/prefix
 ```
 
-To create a tarball
+### Examples
+
+To create a tarball `s3://bucket/prefix/archive.tar` from all the objects located under `s3://bucket/files/`
 ```bash
 s3tar --region us-west-2 -cvf s3://bucket/prefix/archive.tar s3://bucket/files/
+```
+
+The tool supports an input manifest `-m`. The manifest is a comma-separated-value (csv) file with `bucket,key,content-length`. Content-length is the size in bytes of the object. For example:
+
+```bash
+$ cat manifest.input.csv
+my-bucket,prefix/file.0001.exr,68365312
+my-bucket,prefix/file.0002.exr,50172928
+my-bucket,prefix/file.0003.exr,67663872
+
+$ s3tar --region us-west-2 -cvf s3://bucket/prefix/archive.tar -m /Users/bolyanko/manifest.input.csv
+
+# the manifest file can be a local file or an object in Amazon S3
+
+$ s3tar --region us-west-2 -cvf s3://bucket/prefix/archive.tar -m s3://bucket/prefix/manifest.input.csv
+
+
 ```
 
 ### Manifest & Extract
@@ -51,17 +82,57 @@ If the files being tar-ed are larger than 5MB then it will create pairs of (file
 NewS3Object = [(5MB Zeroes + tar_header1) + (S3 Existing Object 1) + tar_header2 + (S3 Existing Object 1) ... (EOF 2x512 blocks)]
 ```
 
-### Testing & Validation
+## Testing & Validation
 We encourage the end-user to write validation workflows to verify the data has been properly tared. If objects being tared are smaller than 5GB, users can use Amazon S3 Batch Operations to generate checksums for the individual objects. After the creation of the tar, users can extract the data into a separate bucket/folder and run the same batch operations job on the new data and verify that the checksums match. To learn more about using checksums for data validation, along with some demos, please watch [Get Started With Checksums in Amazon S3 for Data Integrity Checking](https://www.youtube.com/watch?v=JGsdvDPSirU).
 
 ### Limitations of the tool
 This tool still has the same limitations of Multipart Object sizes:
 - The cumulative size of the TAR must be over 5MB
-- The final size cannot be larger than 5TiB
+- The final size cannot be larger than 5TB
 
+---
 ## Security
 
 See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+
+---
+
+## Frequently Asked Questions (FAQ)
+
+
+**Does the tool download any files?**
+
+No, all files are copied from their current location in Amazon S3 to their destination using the `s3.UploadPartCopy` API call. 
+
+---
+
+**Does the tool upload any files?**
+
+We are using the go `archive/tar` library to generate the Tar headers that go in between the files. These files are uploaded to Amazon S3 and concatenated with the Multipart Upload. 
+
+---
+
+**Is compression supported?**
+
+No, the tool is only copying existing data from Amazon S3 to another Amazon S3 location. To compress the objects it would require the tool to download the data, compress and then re-upload to Amazon S3. 
+
+---
+
+**Are Amazon S3 tags and meta-data copied to the tarball** 
+
+No. Currently we're storing the `Etag` in the manifest, there is a possibility that could allow us to expand this. 
+
+--- 
+
+**What size of files are supported?**
+
+Any size that is within the Amazon S3 Multipart Object limitations. On the small side they can be as small as a few bytes, as long as the total archive at the end is over 5MB. On the large side the max size per object is 5GB, and the total archive is 5TB. 
+
+---
+
+**Can I open the resulting tar anywhere?**
+
+Yes, you can download the tar file generated 
 
 ## License
 

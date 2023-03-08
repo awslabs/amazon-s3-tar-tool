@@ -31,7 +31,7 @@ func buildHeader(o, prev *S3Obj, addZeros bool) S3Obj {
 		ModTime:    *o.LastModified,
 		ChangeTime: *o.LastModified,
 		AccessTime: time.Now(),
-		Format:     tar.FormatGNU,
+		Format:     tarFormat,
 	}
 	if addZeros {
 		buff.Write(pad)

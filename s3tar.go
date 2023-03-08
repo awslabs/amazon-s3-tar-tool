@@ -4,6 +4,7 @@
 package s3tar
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"fmt"
@@ -27,12 +28,17 @@ const (
 )
 
 var (
-	accum int64 = 0
-	pad         = make([]byte, beginningPad)
-	rc    *RecursiveConcat
+	accum     int64 = 0
+	pad             = make([]byte, beginningPad)
+	tarFormat       = tar.FormatPAX
+	rc        *RecursiveConcat
 )
 
 func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Options) {
+
+	if opts.TarFormat == "gnu" {
+		tarFormat = tar.FormatGNU
+	}
 
 	ctx := context.WithValue(incoming, contextKeyS3Client, svc)
 	start := time.Now()
@@ -197,6 +203,7 @@ func redistribute(ctx context.Context, obj *S3Obj, trimoffset int64, bucket, key
 	}
 
 	partSize := finalSize / mid
+	Warnf(ctx, "redistribute calculations")
 	Warnf(ctx, "parts: %d", mid)
 	Warnf(ctx, "FinalSize:\t%d", finalSize)
 	Warnf(ctx, "total:\t%d", partSize*mid)

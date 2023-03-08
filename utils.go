@@ -43,11 +43,12 @@ type S3TarS3Options struct {
 	DeleteSource       bool
 	SmallFiles         bool
 	Region             string
+	TarFormat          string
 }
 
 func findMinMaxPartRange(objectSize int64) (int64, int64, int64) {
 	const (
-		KB          int64 = 1000
+		KB          int64 = 1024
 		partsLimit  int64 = 10000
 		partSizeMin int64 = KB * KB * 5
 		partSizeMax int64 = KB * KB * KB * 5

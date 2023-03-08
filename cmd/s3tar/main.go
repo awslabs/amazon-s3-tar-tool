@@ -24,6 +24,7 @@ func main() {
 	var threads uint
 	var skipManifestHeader bool
 	var manifestPath string // file flag
+	var tarFormat string    // file flag
 
 	app := &cli.App{
 		UseShortOptionHandling: true,
@@ -89,6 +90,12 @@ func main() {
 				Destination: &manifestPath,
 				Aliases:     []string{"m"},
 			},
+			&cli.StringFlag{
+				Name:        "format",
+				Value:       "pax",
+				Usage:       "tar format can be either pax or gnu. default is pax",
+				Destination: &tarFormat,
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
 			logLevel := parseLogLevel(cCtx.Count("verbose"))
@@ -109,6 +116,7 @@ func main() {
 					Threads:            threads,
 					DeleteSource:       false,
 					Region:             region,
+					TarFormat:          tarFormat,
 				}
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(archiveFile)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
@@ -123,7 +131,6 @@ func main() {
 				svc := s3.NewFromConfig(cfg)
 				s3tar.ServerSideTar(ctx, svc, s3opts)
 			} else if extract {
-				fmt.Printf("extract tar\n")
 
 				if archiveFile == "" {
 					exitError(5, "file is missing")

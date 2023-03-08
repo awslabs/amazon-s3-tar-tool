@@ -52,7 +52,11 @@ func _buildManifest(ctx context.Context, headers []*S3Obj, objectList []*S3Obj) 
 }
 
 func createCSVManifest(offset int64, headers []*S3Obj, objectList []*S3Obj) *bytes.Buffer {
-	var currLocation int64 = offset + 512
+	headerOffset := paxTarHeaderSize
+	if tarFormat == tar.FormatGNU {
+		headerOffset = gnuTarHeaderSize
+	}
+	var currLocation int64 = offset + headerOffset
 	currLocation = currLocation + findPadding(currLocation)
 	buf := bytes.Buffer{}
 	manifest := [][]string{}
@@ -88,7 +92,7 @@ func buildFirstPart(csvData []byte) *S3Obj {
 		ModTime:    time.Now(),
 		ChangeTime: time.Now(),
 		AccessTime: time.Now(),
-		Format:     tar.FormatGNU,
+		Format:     tarFormat,
 	}
 	buf.Write(pad)
 	if err := tw.WriteHeader(hdr); err != nil {
