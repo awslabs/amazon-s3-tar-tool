@@ -15,30 +15,30 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
-func buildManifest(ctx context.Context, objectList []*S3Obj) (*S3Obj, *S3Obj) {
+func buildToc(ctx context.Context, objectList []*S3Obj) (*S3Obj, *S3Obj) {
 
 	headers := processHeaders(ctx, objectList, false)
-	manifest := _buildManifest(ctx, headers, objectList)
+	toc := _buildToc(ctx, headers, objectList)
 
 	// Build a header with the original data
-	manifestObj := NewS3Obj()
-	manifestObj.Key = aws.String("manifest.csv")
-	manifestObj.AddData(manifest.Bytes())
-	manifestHeader := buildHeader(manifestObj, nil, false)
-	manifestHeader.Bucket = objectList[0].Bucket
-	manifestObj.Bucket = objectList[0].Bucket
+	tocObj := NewS3Obj()
+	tocObj.Key = aws.String("toc.csv")
+	tocObj.AddData(toc.Bytes())
+	tocHeader := buildHeader(tocObj, nil, false)
+	tocHeader.Bucket = objectList[0].Bucket
+	tocObj.Bucket = objectList[0].Bucket
 
-	return manifestObj, &manifestHeader
+	return tocObj, &tocHeader
 }
 
-func _buildManifest(ctx context.Context, headers []*S3Obj, objectList []*S3Obj) *bytes.Buffer {
+func _buildToc(ctx context.Context, headers []*S3Obj, objectList []*S3Obj) *bytes.Buffer {
 
 	var currLocation int64 = 0
-	data := createCSVManifest(currLocation, headers, objectList)
+	data := createCSVTOC(currLocation, headers, objectList)
 	estimate := int64(data.Len())
 
 	for {
-		data = createCSVManifest(int64(estimate), headers, objectList)
+		data = createCSVTOC(int64(estimate), headers, objectList)
 		l := int64(data.Len())
 		lp := l + findPadding(l)
 		if lp >= estimate {
@@ -51,7 +51,7 @@ func _buildManifest(ctx context.Context, headers []*S3Obj, objectList []*S3Obj) 
 	return data
 }
 
-func createCSVManifest(offset int64, headers []*S3Obj, objectList []*S3Obj) *bytes.Buffer {
+func createCSVTOC(offset int64, headers []*S3Obj, objectList []*S3Obj) *bytes.Buffer {
 	headerOffset := paxTarHeaderSize
 	if tarFormat == tar.FormatGNU {
 		headerOffset = gnuTarHeaderSize
@@ -59,7 +59,7 @@ func createCSVManifest(offset int64, headers []*S3Obj, objectList []*S3Obj) *byt
 	var currLocation int64 = offset + headerOffset
 	currLocation = currLocation + findPadding(currLocation)
 	buf := bytes.Buffer{}
-	manifest := [][]string{}
+	toc := [][]string{}
 
 	for i := 0; i < len(objectList); i++ {
 		currLocation += headers[i].Size
@@ -70,11 +70,11 @@ func createCSVManifest(offset int64, headers []*S3Obj, objectList []*S3Obj) *byt
 			fmt.Sprintf("%d", currLocation),
 			fmt.Sprintf("%d", objectList[i].Size),
 			*objectList[i].ETag)
-		manifest = append(manifest, line)
+		toc = append(toc, line)
 		currLocation += objectList[i].Size
 	}
 	cw := csv.NewWriter(&buf)
-	if err := cw.WriteAll(manifest); err != nil {
+	if err := cw.WriteAll(toc); err != nil {
 		log.Fatal(err.Error())
 	}
 	cw.Flush()
@@ -86,7 +86,7 @@ func buildFirstPart(csvData []byte) *S3Obj {
 	buf := &bytes.Buffer{}
 	tw := tar.NewWriter(buf)
 	hdr := &tar.Header{
-		Name:       "manifest.csv",
+		Name:       "toc.csv",
 		Mode:       0600,
 		Size:       int64(len(csvData)),
 		ModTime:    time.Now(),

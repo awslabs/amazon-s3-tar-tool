@@ -6,6 +6,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3tar "github.com/awslabs/amazon-s3-tar-tool"
@@ -13,6 +15,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+)
+
+var (
+	Version    = "0.0.0"
+	Commit     = ""
+	VersionMsg = fmt.Sprintf("%s-%s", Version, Commit)
 )
 
 func main() {
@@ -26,6 +34,11 @@ func main() {
 	var manifestPath string // file flag
 	var tarFormat string    // file flag
 
+	cli.VersionFlag = &cli.BoolFlag{
+		Name:    "print-version",
+		Aliases: []string{"V"},
+		Usage:   "show version:",
+	}
 	app := &cli.App{
 		UseShortOptionHandling: true,
 		Authors: []*cli.Author{
@@ -34,8 +47,10 @@ func main() {
 				Email: "bolyanko@amazon.com",
 			},
 		},
-		UsageText: "tar --region us-west-2 [-c --create] | [-x --extract] [-v] -f s3://bucket/prefix/file.tar s3://bucket/prefix",
-		Copyright: "Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.",
+		Version:     VersionMsg,
+		UsageText:   "s3tar --region us-west-2 [-c --create] | [-x --extract] [-v] -f s3://bucket/prefix/file.tar s3://bucket/prefix",
+		Copyright:   "Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.",
+		Description: "s3tar helps aggregates existing Amazon S3 objects without the need to download files",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:        "create",
@@ -124,7 +139,9 @@ func main() {
 
 				ctx = s3tar.SetLogLevel(ctx, logLevel)
 
-				cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+				cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region), config.WithRetryer(func() aws.Retryer {
+					return retry.AddWithMaxAttempts(retry.NewStandard(), 10)
+				}))
 				if err != nil {
 					log.Fatal(err.Error())
 				}

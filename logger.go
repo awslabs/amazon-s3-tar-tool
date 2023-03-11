@@ -8,10 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 )
-
-const ISO_8601 = "2006-01-02T15:04:05.999Z"
 
 const (
 	contextKeyLogger      = contextKey("logger")
@@ -22,7 +19,7 @@ type logWriter struct {
 }
 
 func (writer logWriter) Write(bytes []byte) (int, error) {
-	return fmt.Print(time.Now().UTC().Format(ISO_8601) + string(bytes))
+	return fmt.Print(string(bytes))
 }
 
 func SetLogLevel(ctx context.Context, level int) context.Context {
@@ -30,7 +27,7 @@ func SetLogLevel(ctx context.Context, level int) context.Context {
 }
 
 func SetupLogger(incoming context.Context) context.Context {
-	logger := log.New(os.Stdout, " ", 0)
+	logger := log.New(os.Stdout, "", 0)
 	logger.SetOutput(new(logWriter))
 	return context.WithValue(incoming, contextKeyLogger, logger)
 }

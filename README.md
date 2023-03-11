@@ -50,13 +50,31 @@ $ s3tar --region us-west-2 -cvf s3://bucket/prefix/archive.tar -m s3://bucket/pr
 ```
 
 ### Manifest & Extract
-Tarballs created with this tool have the option to generate a manifest file. This manifest file is at the beginning of the file and it contains a csv line per file with the `name, byte location, content-length, Etag`. This added functionality allows archives that are created this way to also be extracted without having to download the tar object. 
+Tarballs created with this tool generate a Table of Contents (TOC). This TOC file is at the beginning of the archive and it contains a csv line per file with the `name, byte location, content-length, Etag`. This added functionality allows archives that are created this way to also be extracted without having to download the tar object. 
 
-Extracting a tarball that was created with a manifest file:
+You can extract a tarball from Amazon S3 into another Amazon S3 location with the following command:
 
 ```bash 
 s3tar --region us-west-2 -xvf s3://bucket/prefix/archive.tar s3://bucket/destination/
 ```
+
+### Performance
+
+The tool's performance is bound by the API calls limitations. The table below has a few tests with files of different sizes. 
+
+| Number of Files | Final archive size | Average Object Size | Creation Time | Extraction Time |
+|-----------------|--------------------|---------------------|---------------|-----------------|
+| 41,593          | 20 GB              | 512 KB              | 6m10s         | 3m11s           |
+| 124,779         | 61 GB              | 512 KB              | 18m24s        | 10m5s           |
+| 249,558         | 123 GB             | 512 KB              | 40m56s        |                 |
+| 14,400          | 73 GB              | 70 MB               | 2m15s         | 1m20s           |
+| 69,121          | 3.75 TB            | 70 MB               | 1h11m30s      | 32m20s          |
+
+The application is configured to retry every Amazon S3 operation up to 10 times with a Max backoff time of 20 seconds. If you get a timeout error, try reducing the number of files. 
+
+## Installation
+
+A make file is included that helps building the application for `darwin-arm64` `linux-arm64` `linux-amd64`. Place the resulting `s3tar` binary in your `PATH`. 
 
 ## How the tool works
 
@@ -120,7 +138,7 @@ No, the tool is only copying existing data from Amazon S3 to another Amazon S3 l
 
 **Are Amazon S3 tags and meta-data copied to the tarball** 
 
-No. Currently we're storing the `Etag` in the manifest, there is a possibility that could allow us to expand this. 
+No. Currently we're storing the `Etag` in the TOC, there is a possibility that could allow us to expand this. 
 
 --- 
 
@@ -132,7 +150,13 @@ Any size that is within the Amazon S3 Multipart Object limitations. On the small
 
 **Can I open the resulting tar anywhere?**
 
-Yes, you can download the tar file generated 
+Yes, the tarballs are created with either PAX (default) or GNU headers. You can download the tar file generated and extract it using the same tools you use to operate on tar files. 
+
+---
+
+**What type of compute resources do I need to run the tool?**
+
+Since the tool is only doing API calls, any compute that can reach the Amazon S3 API should suffice. This could run on a t4g.nano or Lambda, as long as the number of files is low enough for the 15 minute window.
 
 ## License
 

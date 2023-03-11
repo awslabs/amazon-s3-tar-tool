@@ -26,7 +26,7 @@ const (
 // The archive has to be created with the manifest option.
 func Extract(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) error {
 
-	manifest, err := extractCSVManifest(ctx, svc, opts.SrcBucket, opts.SrcPrefix)
+	manifest, err := extractCSVToc(ctx, svc, opts.SrcBucket, opts.SrcPrefix)
 	if err != nil {
 		return err
 	}
@@ -37,7 +37,7 @@ func Extract(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) error {
 		wg.Add()
 		go func(metadata *FileMetadata) {
 			dstKey := filepath.Join(opts.DstPrefix, metadata.Filename)
-			err = extractRange(ctx, svc, opts.SrcBucket, opts.SrcPrefix, dstKey, metadata.Start, metadata.Size, opts)
+			err = extractRange(ctx, svc, opts.SrcBucket, opts.SrcPrefix, opts.DstBucket, dstKey, metadata.Start, metadata.Size, opts)
 			if err != nil {
 				Fatalf(ctx, err.Error())
 			}
@@ -49,10 +49,10 @@ func Extract(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) error {
 	return nil
 }
 
-func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstKey string, start, size int64, opts *S3TarS3Options) error {
+func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstBucket, dstKey string, start, size int64, opts *S3TarS3Options) error {
 
 	output, err := svc.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
-		Bucket: aws.String(bucket),
+		Bucket: aws.String(dstBucket),
 		Key:    aws.String(dstKey),
 	})
 	if err != nil {
@@ -61,10 +61,10 @@ func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstKey strin
 	uploadId := *output.UploadId
 	copySourceRange := fmt.Sprintf("bytes=%d-%d", start, start+size-1)
 
-	Infof(ctx, "s3://%s/%s", bucket, dstKey)
+	//Infof(ctx, "s3://%s/%s", bucket, dstKey)
 
 	input := s3.UploadPartCopyInput{
-		Bucket:          &bucket,
+		Bucket:          &dstBucket,
 		Key:             &dstKey,
 		PartNumber:      1,
 		UploadId:        &uploadId,
@@ -84,7 +84,7 @@ func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstKey strin
 	}
 
 	completeOutput, err := svc.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
-		Bucket:   &bucket,
+		Bucket:   &dstBucket,
 		Key:      &dstKey,
 		UploadId: &uploadId,
 		MultipartUpload: &types.CompletedMultipartUpload{
@@ -94,7 +94,7 @@ func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstKey strin
 	if err != nil {
 		return err
 	}
-	Infof(ctx, "extracted: s3://%s/%s", *completeOutput.Bucket, *completeOutput.Key)
+	Infof(ctx, "x s3://%s/%s", *completeOutput.Bucket, *completeOutput.Key)
 	return nil
 }
 
@@ -130,7 +130,7 @@ retry:
 	return hdr, headerSize, err
 }
 
-func extractCSVManifest(ctx context.Context, svc *s3.Client, bucket, key string) (Manifest, error) {
+func extractCSVToc(ctx context.Context, svc *s3.Client, bucket, key string) (Manifest, error) {
 	var m Manifest
 
 	hdr, offset, err := extractTarHeader(ctx, svc, bucket, key)
@@ -151,7 +151,6 @@ func extractCSVManifest(ctx context.Context, svc *s3.Client, bucket, key string)
 		}
 		if err != nil {
 			break
-			// log.Fatal(err.Error())
 		}
 		start, err := StringToInt64(record[1])
 		if err != nil {

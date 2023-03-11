@@ -21,6 +21,7 @@ type RecursiveConcat struct {
 	Region    string
 	Bucket    string
 	DstPrefix string
+	DstKey    string
 	block     S3Obj
 }
 
@@ -29,13 +30,14 @@ type RecursiveConcatOptions struct {
 	Region    string
 	Bucket    string
 	DstPrefix string
+	DstKey    string
 }
 
 // type RecursiveConcatOption func(r *RecursiveConcat)
 
 func (r *RecursiveConcat) CreateFirstBlock(ctx context.Context) {
 	//randomize?
-	key := filepath.Join(r.DstPrefix, "parts", "min-size-block")
+	key := filepath.Join(r.DstPrefix, r.DstKey, "parts", "min-size-block")
 	now := time.Now()
 	output, err := putObject(ctx, r.Client, r.Bucket, key, pad)
 	if err != nil {
@@ -69,6 +71,7 @@ func NewRecursiveConcat(ctx context.Context, options RecursiveConcatOptions, opt
 		Region:    options.Region,
 		Bucket:    options.Bucket,
 		DstPrefix: options.DstPrefix,
+		DstKey:    options.DstKey,
 	}
 	rc.CreateFirstBlock(ctx)
 
