@@ -22,7 +22,7 @@ The tool follows the tar syntax for creation and extraction of tarballs with a f
 
 The syntax for creating and extracting tarballs remains similar to traditional tar tools:
 ```bash
-   tar --region region [-c --create] | [-x --extract] [-v] -f s3://bucket/prefix/file.tar s3://bucket/prefix
+   s3tar --region region [-c --create] | [-x --extract] [-v] -f s3://bucket/prefix/file.tar s3://bucket/prefix
 ```
 
 ### Examples
