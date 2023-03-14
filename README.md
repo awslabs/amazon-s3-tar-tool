@@ -66,7 +66,8 @@ The tool's performance is bound by the API calls limitations. The table below ha
 |-----------------|--------------------|---------------------|---------------|-----------------|
 | 41,593          | 20 GB              | 512 KB              | 6m10s         | 3m11s           |
 | 124,779         | 61 GB              | 512 KB              | 18m24s        | 10m5s           |
-| 249,558         | 123 GB             | 512 KB              | 40m56s        |                 |
+| 249,558         | 123 GB             | 512 KB              | 40m56s        | 21m42s          |
+| 499,116         | 246 GB             | 512 KB              | 1h34m         | 38m58s          |
 | 14,400          | 73 GB              | 70 MB               | 2m15s         | 1m20s           |
 | 69,121          | 3.75 TB            | 70 MB               | 1h11m30s      | 32m20s          |
 
@@ -103,7 +104,26 @@ NewS3Object = [(5MB Zeroes + tar_header1) + (S3 Existing Object 1) + tar_header2
 ## Testing & Validation
 We encourage the end-user to write validation workflows to verify the data has been properly tared. If objects being tared are smaller than 5GB, users can use Amazon S3 Batch Operations to generate checksums for the individual objects. After the creation of the tar, users can extract the data into a separate bucket/folder and run the same batch operations job on the new data and verify that the checksums match. To learn more about using checksums for data validation, along with some demos, please watch [Get Started With Checksums in Amazon S3 for Data Integrity Checking](https://www.youtube.com/watch?v=JGsdvDPSirU).
 
-### Limitations of the tool
+## Pricing
+It's important to understand that Amazon S3's API has costs associated with it. In particular `PUT`, `COPY`, `POST` are charged at a higher rate than `GET`. The majority of requests performed by this tool are `COPY` and `PUT` operations. Please refer to [the Amazon S3 Pricing page](https://aws.amazon.com/s3/pricing/) for a breakdown of the API costs. You can also use the [AWS Cost Calculator](https://calculator.aws) to help you price your operations.
+
+During the build process the tool uses Amazon S3 Standard to work on files. If you are aggregating 1,000 objects, then it will require at least 1,000 `COPY` operations and 1,000 `PUT` operations for the tar headers. 
+
+Example: If we want to aggregate 10,000 files
+
+    $0.005 PUT, COPY, POST, LIST requests (per 1,000 requests)
+    To Copy the 10,000 files to the archive we will do at least 10,000 COPY operations
+
+    10,000 / 1,000 * $0.005 = $0.05 
+    We need to generate at least 10,000 header files, that's 10,000 PUT opeartions
+
+    10,000 / 1,000 * $0.005 = $0.05 
+    There are other intermidiate operations of creating multipart
+    It would cost a little over $0.1 to create an archive of 10,000 files
+
+The cost example above only prices the cost of performing the operation. It doesn't include how much it would cost to store the final object. 
+
+## Limitations of the tool
 This tool still has the same limitations of Multipart Object sizes:
 - The cumulative size of the TAR must be over 5MB
 - The final size cannot be larger than 5TB
@@ -127,6 +147,12 @@ No, all files are copied from their current location in Amazon S3 to their desti
 **Does the tool upload any files?**
 
 We are using the go `archive/tar` library to generate the Tar headers that go in between the files. These files are uploaded to Amazon S3 and concatenated with the Multipart Upload. 
+
+---
+
+**Does the tool delete any files?**
+
+No, the original files will remain untouched. The user is responsible for the lifecycle of the objects. 
 
 ---
 
