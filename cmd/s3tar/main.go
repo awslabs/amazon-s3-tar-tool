@@ -27,12 +27,14 @@ func main() {
 	ctx := s3tar.SetupLogger(context.Background())
 	var create bool
 	var extract bool
+	var list bool
 	var region string
 	var archiveFile string // file flag
+	var destination string
 	var threads uint
 	var skipManifestHeader bool
-	var manifestPath string // file flag
-	var tarFormat string    // file flag
+	var manifestPath string
+	var tarFormat string
 
 	cli.VersionFlag = &cli.BoolFlag{
 		Name:    "print-version",
@@ -67,6 +69,13 @@ func main() {
 				Destination: &extract,
 			},
 			&cli.BoolFlag{
+				Name:        "list",
+				Value:       false,
+				Usage:       "print out the contents in the archive",
+				Aliases:     []string{"t"},
+				Destination: &list,
+			},
+			&cli.BoolFlag{
 				Name:    "verbose",
 				Value:   false,
 				Usage:   "verbose level v, vv, vvv",
@@ -85,7 +94,13 @@ func main() {
 				Aliases:     []string{"f"},
 				Destination: &archiveFile,
 			},
-
+			&cli.StringFlag{
+				Name:        "location",
+				Value:       "",
+				Usage:       "destination to extract",
+				Aliases:     []string{"C"},
+				Destination: &destination,
+			},
 			&cli.UintFlag{
 				Name:        "goroutines",
 				Value:       20,
@@ -152,9 +167,9 @@ func main() {
 				if archiveFile == "" {
 					exitError(5, "file is missing")
 				}
-				dst := cCtx.Args().First()
-				if dst == "" {
-					log.Fatalf("dst path missing")
+				prefix := cCtx.Args().First()
+				if destination == "" {
+					log.Fatalf("destination path missing")
 				}
 				cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
 				if err != nil {
@@ -168,10 +183,24 @@ func main() {
 					Region:       region,
 				}
 				s3opts.SrcBucket, s3opts.SrcPrefix = s3tar.ExtractBucketAndPath(archiveFile)
-				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(dst)
+				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(destination)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
 				ctx = s3tar.SetLogLevel(ctx, logLevel)
-				return s3tar.Extract(ctx, svc, s3opts)
+				return s3tar.Extract(ctx, svc, prefix, s3opts)
+			} else if list {
+				bucket, key := s3tar.ExtractBucketAndPath(archiveFile)
+				cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
+				if err != nil {
+					log.Fatal(err.Error())
+				}
+				svc := s3.NewFromConfig(cfg)
+				toc, err := s3tar.List(ctx, svc, bucket, key)
+				if err != nil {
+					log.Fatal(err.Error())
+				}
+				for _, f := range toc {
+					fmt.Printf("%s\n", f.Filename)
+				}
 			} else {
 				exitError(3, "operation not implemented, provide create or extract flag\n")
 			}

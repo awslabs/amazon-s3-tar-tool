@@ -14,7 +14,9 @@ The tool follows the tar syntax for creation and extraction of tarballs with a f
 |---------------|-----------------------------------------------------------------------|----------------------|
 | -c            | create                                                                | yes, unless using -x |
 | -x            | extract                                                               | yes, unless using -c |
+| -C            | destination to extract                                                | yes when using -x    |
 | -f            | file that will be generated or extracted: s3://bucket/prefix/file.tar | yes                  |
+| -t            | list files in archive                                                 | no                   |
 | -m            | manifest input                                                        | no                   |
 | --region      | aws region where the bucket is                                        | yes                  |
 | -v, -vv, -vvv | level of verbose                                                      | no                   |    
@@ -49,15 +51,34 @@ $ s3tar --region us-west-2 -cvf s3://bucket/prefix/archive.tar -m s3://bucket/pr
 
 ```
 
-### Manifest & Extract
+### TOC & Extract
 Tarballs created with this tool generate a Table of Contents (TOC). This TOC file is at the beginning of the archive and it contains a csv line per file with the `name, byte location, content-length, Etag`. This added functionality allows archives that are created this way to also be extracted without having to download the tar object. 
 
 You can extract a tarball from Amazon S3 into another Amazon S3 location with the following command:
 
 ```bash 
-s3tar --region us-west-2 -xvf s3://bucket/prefix/archive.tar s3://bucket/destination/
+s3tar --region us-west-2 -xvf s3://bucket/prefix/archive.tar -C s3://bucket/destination/
 ```
 
+To extract a single file in a tar, or a prefix
+
+```bash 
+s3tar --region us-west-2 -xvf s3://bucket/prefix/archive.tar -C s3://bucket/destination/ folder/image1.jpg 
+# or a dir
+s3tar --region us-west-2 -xvf s3://bucket/prefix/archive.tar -C s3://bucket/destination/ folder/ 
+```
+
+### List
+If you want to list the files in a tar
+```bash 
+s3tar --region us-west-2 -tf s3://bucket/prefix/archive.tar 
+folder/image1.jpg
+folder/image2.jpg
+folder/image3.jpg
+other-folder/image1.jpg
+other-folder/image2.jpg
+other-folder/image3.jpg
+```
 ### Performance
 
 The tool's performance is bound by the API calls limitations. The table below has a few tests with files of different sizes. 

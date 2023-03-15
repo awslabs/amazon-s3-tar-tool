@@ -8,13 +8,14 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"golang.org/x/sync/errgroup"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/remeh/sizedwaitgroup"
 )
 
 const (
@@ -24,29 +25,59 @@ const (
 
 // Extract will unpack the tar file from source to target without downloading the archive locally.
 // The archive has to be created with the manifest option.
-func Extract(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) error {
+func Extract(ctx context.Context, svc *s3.Client, prefix string, opts *S3TarS3Options) error {
 
-	manifest, err := extractCSVToc(ctx, svc, opts.SrcBucket, opts.SrcPrefix)
+	if !checkIfObjectExists(ctx, svc, opts.SrcBucket, opts.SrcPrefix) {
+		return fmt.Errorf("object does not exist s3://%s/%s", opts.SrcPrefix, opts.SrcPrefix)
+	}
+
+	toc, err := extractCSVToc(ctx, svc, opts.SrcBucket, opts.SrcPrefix)
 	if err != nil {
 		return err
 	}
 
-	wg := sizedwaitgroup.New(50)
+	extract := func() error {
+		g, _ := errgroup.WithContext(ctx)
+		g.SetLimit(50)
 
-	for _, metadata := range manifest {
-		wg.Add()
-		go func(metadata *FileMetadata) {
-			dstKey := filepath.Join(opts.DstPrefix, metadata.Filename)
-			err = extractRange(ctx, svc, opts.SrcBucket, opts.SrcPrefix, opts.DstBucket, dstKey, metadata.Start, metadata.Size, opts)
-			if err != nil {
-				Fatalf(ctx, err.Error())
+		for _, f := range toc {
+			f := f
+			if strings.HasPrefix(f.Filename, prefix) {
+				g.Go(func() error {
+					dstKey := filepath.Join(opts.DstPrefix, f.Filename)
+					err = extractRange(ctx, svc, opts.SrcBucket, opts.SrcPrefix, opts.DstBucket, dstKey, f.Start, f.Size, opts)
+					if err != nil {
+						Fatalf(ctx, err.Error())
+					}
+					return nil
+				})
 			}
-			wg.Done()
-		}(metadata)
-	}
-	wg.Wait()
+		}
 
-	return nil
+		return g.Wait()
+	}
+
+	return extract()
+}
+
+func checkIfObjectExists(ctx context.Context, svc *s3.Client, bucket, key string) bool {
+	_, err := svc.HeadObject(ctx, &s3.HeadObjectInput{Bucket: &bucket, Key: &key})
+	if err != nil {
+		return false
+	}
+	return true
+}
+
+// List will print out the contents in a tar, we do this by just printing from the TOC.
+func List(ctx context.Context, svc *s3.Client, bucket, key string) (TOC, error) {
+	if !checkIfObjectExists(ctx, svc, bucket, key) {
+		return nil, fmt.Errorf("object does not exist s3://%s/%s", bucket, key)
+	}
+	toc, err := extractCSVToc(ctx, svc, bucket, key)
+	if err != nil {
+		return TOC{}, err
+	}
+	return toc, nil
 }
 
 func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstBucket, dstKey string, start, size int64, opts *S3TarS3Options) error {
@@ -98,7 +129,7 @@ func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstBucket, d
 	return nil
 }
 
-type Manifest []*FileMetadata
+type TOC []*FileMetadata
 type FileMetadata struct {
 	Filename string
 	Start    int64
@@ -130,8 +161,8 @@ retry:
 	return hdr, headerSize, err
 }
 
-func extractCSVToc(ctx context.Context, svc *s3.Client, bucket, key string) (Manifest, error) {
-	var m Manifest
+func extractCSVToc(ctx context.Context, svc *s3.Client, bucket, key string) (TOC, error) {
+	var m TOC
 
 	hdr, offset, err := extractTarHeader(ctx, svc, bucket, key)
 	if err != nil {
