@@ -36,6 +36,7 @@ type S3TarS3Options struct {
 	SkipManifestHeader bool
 	SrcBucket          string
 	SrcPrefix          string
+	SrcKey             string
 	DstBucket          string
 	DstPrefix          string
 	DstKey             string

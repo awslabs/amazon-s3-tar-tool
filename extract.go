@@ -28,11 +28,11 @@ const (
 // The archive has to be created with the manifest option.
 func Extract(ctx context.Context, svc *s3.Client, prefix string, opts *S3TarS3Options) error {
 
-	if err := checkIfObjectExists(ctx, svc, opts.SrcBucket, opts.SrcPrefix); err != nil {
+	if err := checkIfObjectExists(ctx, svc, opts.SrcBucket, opts.SrcKey); err != nil {
 		return err
 	}
 
-	toc, err := extractCSVToc(ctx, svc, opts.SrcBucket, opts.SrcPrefix)
+	toc, err := extractCSVToc(ctx, svc, opts.SrcBucket, opts.SrcKey)
 	if err != nil {
 		return err
 	}
@@ -46,7 +46,7 @@ func Extract(ctx context.Context, svc *s3.Client, prefix string, opts *S3TarS3Op
 			if strings.HasPrefix(f.Filename, prefix) {
 				g.Go(func() error {
 					dstKey := filepath.Join(opts.DstPrefix, f.Filename)
-					err = extractRange(ctx, svc, opts.SrcBucket, opts.SrcPrefix, opts.DstBucket, dstKey, f.Start, f.Size, opts)
+					err = extractRange(ctx, svc, opts.SrcBucket, opts.SrcKey, opts.DstBucket, dstKey, f.Start, f.Size, opts)
 					if err != nil {
 						Fatalf(ctx, err.Error())
 					}
@@ -188,7 +188,7 @@ func extractCSVToc(ctx context.Context, svc *s3.Client, bucket, key string) (TOC
 		if err != nil {
 			break
 		}
-		if len(record) != 3 {
+		if len(record) != 4 {
 			Fatalf(ctx, "unable to parse csv TOC. Was this archive created with s3tar?")
 		}
 		start, err := StringToInt64(record[1])

@@ -186,7 +186,8 @@ func main() {
 					DeleteSource: false,
 					Region:       region,
 				}
-				s3opts.SrcBucket, s3opts.SrcPrefix = s3tar.ExtractBucketAndPath(archiveFile)
+				s3opts.SrcBucket, s3opts.SrcKey = s3tar.ExtractBucketAndPath(archiveFile)
+				s3opts.SrcPrefix = filepath.Dir(s3opts.SrcKey)
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(destination)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
 				ctx = s3tar.SetLogLevel(ctx, logLevel)
