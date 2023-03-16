@@ -7,6 +7,7 @@ import (
 	"archive/tar"
 	"context"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"golang.org/x/sync/errgroup"
 	"io"
@@ -27,8 +28,8 @@ const (
 // The archive has to be created with the manifest option.
 func Extract(ctx context.Context, svc *s3.Client, prefix string, opts *S3TarS3Options) error {
 
-	if !checkIfObjectExists(ctx, svc, opts.SrcBucket, opts.SrcPrefix) {
-		return fmt.Errorf("object does not exist s3://%s/%s", opts.SrcPrefix, opts.SrcPrefix)
+	if err := checkIfObjectExists(ctx, svc, opts.SrcBucket, opts.SrcPrefix); err != nil {
+		return err
 	}
 
 	toc, err := extractCSVToc(ctx, svc, opts.SrcBucket, opts.SrcPrefix)
@@ -60,18 +61,22 @@ func Extract(ctx context.Context, svc *s3.Client, prefix string, opts *S3TarS3Op
 	return extract()
 }
 
-func checkIfObjectExists(ctx context.Context, svc *s3.Client, bucket, key string) bool {
+var ErrUnableToAccess = errors.New("unable to access")
+
+func checkIfObjectExists(ctx context.Context, svc *s3.Client, bucket, key string) error {
 	_, err := svc.HeadObject(ctx, &s3.HeadObjectInput{Bucket: &bucket, Key: &key})
 	if err != nil {
-		return false
+		Errorf(ctx, "%s", err.Error())
+		Errorf(ctx, "does s3://%s/%s exist?", bucket, key)
+		return ErrUnableToAccess
 	}
-	return true
+	return nil
 }
 
 // List will print out the contents in a tar, we do this by just printing from the TOC.
 func List(ctx context.Context, svc *s3.Client, bucket, key string) (TOC, error) {
-	if !checkIfObjectExists(ctx, svc, bucket, key) {
-		return nil, fmt.Errorf("object does not exist s3://%s/%s", bucket, key)
+	if err := checkIfObjectExists(ctx, svc, bucket, key); err != nil {
+		return nil, err
 	}
 	toc, err := extractCSVToc(ctx, svc, bucket, key)
 	if err != nil {
@@ -144,7 +149,7 @@ func extractTarHeader(ctx context.Context, svc *s3.Client, bucket, key string) (
 retry:
 
 	if ctr >= 2 {
-		return nil, 0, fmt.Errorf("unable to parse header from TAR")
+		return nil, 0, fmt.Errorf("unable to parse CSV TOC from TAR")
 	}
 	ctr += 1
 
@@ -182,6 +187,9 @@ func extractCSVToc(ctx context.Context, svc *s3.Client, bucket, key string) (TOC
 		}
 		if err != nil {
 			break
+		}
+		if len(record) != 3 {
+			Fatalf(ctx, "unable to parse csv TOC. Was this archive created with s3tar?")
 		}
 		start, err := StringToInt64(record[1])
 		if err != nil {

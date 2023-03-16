@@ -45,6 +45,12 @@ func Warnf(ctx context.Context, format string, v ...interface{}) {
 		logger.Printf(format, v...)
 	}
 }
+
+// Errorf, always log regardless of log level, but don't stop the application
+func Errorf(ctx context.Context, format string, v ...interface{}) {
+	logger, _ := getValues(ctx)
+	logger.Printf(format, v...)
+}
 func Fatalf(ctx context.Context, format string, v ...interface{}) {
 	log.Fatalf(format, v...)
 }

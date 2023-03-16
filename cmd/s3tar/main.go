@@ -171,6 +171,10 @@ func main() {
 				if destination == "" {
 					log.Fatalf("destination path missing")
 				}
+				if destination[len(destination)-1] != '/' {
+					destination = destination + "/"
+					fmt.Printf("appending '/' to destination path\n")
+				}
 				cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
 				if err != nil {
 					log.Fatal(err.Error())
