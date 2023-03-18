@@ -17,6 +17,7 @@ The tool follows the tar syntax for creation and extraction of tarballs with a f
 | -C            | destination to extract                                                | yes when using -x    |
 | -f            | file that will be generated or extracted: s3://bucket/prefix/file.tar | yes                  |
 | -t            | list files in archive                                                 | no                   |
+| --extended    | to use with -t to extend the output to filename,loc,length,etag       | no                   |
 | -m            | manifest input                                                        | no                   |
 | --region      | aws region where the bucket is                                        | yes                  |
 | -v, -vv, -vvv | level of verbose                                                      | no                   |    

@@ -139,6 +139,7 @@ type FileMetadata struct {
 	Filename string
 	Start    int64
 	Size     int64
+	Etag     string
 }
 
 func extractTarHeader(ctx context.Context, svc *s3.Client, bucket, key string) (*tar.Header, int64, error) {
@@ -203,6 +204,7 @@ func extractCSVToc(ctx context.Context, svc *s3.Client, bucket, key string) (TOC
 			Filename: record[0],
 			Start:    start,
 			Size:     size,
+			Etag:     record[3],
 		})
 	}
 	return m, nil

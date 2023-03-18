@@ -35,6 +35,7 @@ func main() {
 	var skipManifestHeader bool
 	var manifestPath string
 	var tarFormat string
+	var extended bool
 
 	cli.VersionFlag = &cli.BoolFlag{
 		Name:    "print-version",
@@ -126,6 +127,12 @@ func main() {
 				Usage:       "tar format can be either pax or gnu. default is pax",
 				Destination: &tarFormat,
 			},
+			&cli.BoolFlag{
+				Name:        "extended",
+				Value:       false,
+				Usage:       "--extended prints out manifest with: name,byte location,content-length,Etag",
+				Destination: &extended,
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
 			logLevel := parseLogLevel(cCtx.Count("verbose"))
@@ -204,7 +211,11 @@ func main() {
 					log.Fatal(err.Error())
 				}
 				for _, f := range toc {
-					fmt.Printf("%s\n", f.Filename)
+					if extended {
+						fmt.Printf("%s,%d,%d,%s\n", f.Filename, f.Start, f.Size, f.Etag)
+					} else {
+						fmt.Printf("%s\n", f.Filename)
+					}
 				}
 			} else {
 				exitError(3, "operation not implemented, provide create or extract flag\n")
