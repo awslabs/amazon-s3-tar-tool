@@ -84,15 +84,15 @@ other-folder/image3.jpg
 
 The tool's performance is bound by the API calls limitations. The table below has a few tests with files of different sizes. 
 
-| Number of Files | Final archive size | Average Object Size | Creation Time | Extraction Time | Estimated Cost |
-|-----------------|--------------------|---------------------|---------------|-----------------|----------------|
-| 41,593          | 20 GB              | 512 KB              | 6m10s         | 3m11s           | $0.4159        |
-| 124,779         | 61 GB              | 512 KB              | 18m24s        | 10m5s           | $1.2478        |
-| 249,558         | 123 GB             | 512 KB              | 40m56s        | 21m42s          | $2.4956        |
-| 499,116         | 246 GB             | 512 KB              | 1h34m         | 38m58s          | $4.9912        |
-| 748,674         | 369 GB             | 512 KB              | 2h36m         |                 | $7.48674       |
-| 14,400          | 73 GB              | 70 MB               | 2m15s         | 1m20s           | $0.1440        |
-| 69,121          | 3.75 TB            | 70 MB               | 1h11m30s      | 32m20s          | $0.6912        |
+| Number of Files | Final archive size | Average Object Size | Creation Time | Extraction Time | Estimated Cost (us-west-2) |
+|-----------------|--------------------|---------------------|---------------|-----------------|----------------------------|
+| 41,593          | 20 GB              | 512 KB              | 6m10s         | 3m11s           | $0.4159                    |
+| 124,779         | 61 GB              | 512 KB              | 18m24s        | 10m5s           | $1.2478                    |
+| 249,558         | 123 GB             | 512 KB              | 40m56s        | 21m42s          | $2.4956                    |
+| 499,116         | 246 GB             | 512 KB              | 1h34m         | 38m58s          | $4.9912                    |
+| 748,674         | 369 GB             | 512 KB              | 2h36m         |                 | $7.48674                   |
+| 14,400          | 73 GB              | 70 MB               | 2m15s         | 1m20s           | $0.1440                    |
+| 69,121          | 3.75 TB            | 70 MB               | 1h11m30s      | 32m20s          | $0.6912                    |
 
 
 The application is configured to retry every Amazon S3 operation up to 10 times with a Max backoff time of 20 seconds. If you get a timeout error, try reducing the number of files. 
