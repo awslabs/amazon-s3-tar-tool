@@ -85,10 +85,11 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 	if smallFiles {
 		var err error
 		rc, err = NewRecursiveConcat(ctx, RecursiveConcatOptions{
-			Bucket:    opts.DstBucket,
-			DstPrefix: opts.DstPrefix,
-			DstKey:    opts.DstKey,
-			Region:    opts.Region,
+			Bucket:      opts.DstBucket,
+			DstPrefix:   opts.DstPrefix,
+			DstKey:      opts.DstKey,
+			Region:      opts.Region,
+			EndpointUrl: opts.EndpointUrl,
 		})
 		if err != nil {
 			log.Fatal(err.Error())
@@ -131,10 +132,11 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 
 	ctx = context.WithValue(ctx, contextKeyS3Client, svc)
 	concater, err := NewRecursiveConcat(ctx, RecursiveConcatOptions{
-		Bucket:    opts.DstBucket,
-		DstPrefix: opts.DstPrefix,
-		DstKey:    opts.DstKey,
-		Region:    opts.Region,
+		Bucket:      opts.DstBucket,
+		DstPrefix:   opts.DstPrefix,
+		DstKey:      opts.DstKey,
+		Region:      opts.Region,
+		EndpointUrl: opts.EndpointUrl,
 	})
 	if err != nil {
 		log.Fatal(err.Error())

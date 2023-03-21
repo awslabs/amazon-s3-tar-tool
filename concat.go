@@ -17,20 +17,22 @@ import (
 )
 
 type RecursiveConcat struct {
-	Client    *s3.Client
-	Region    string
-	Bucket    string
-	DstPrefix string
-	DstKey    string
-	block     S3Obj
+	Client      *s3.Client
+	Region      string
+	EndpointUrl string
+	Bucket      string
+	DstPrefix   string
+	DstKey      string
+	block       S3Obj
 }
 
 type RecursiveConcatOptions struct {
-	Client    *s3.Client
-	Region    string
-	Bucket    string
-	DstPrefix string
-	DstKey    string
+	Client      *s3.Client
+	Region      string
+	EndpointUrl string
+	Bucket      string
+	DstPrefix   string
+	DstKey      string
 }
 
 // type RecursiveConcatOption func(r *RecursiveConcat)
@@ -67,11 +69,12 @@ func NewRecursiveConcat(ctx context.Context, options RecursiveConcatOptions, opt
 	resolveClient(&options)
 
 	rc := &RecursiveConcat{
-		Client:    options.Client,
-		Region:    options.Region,
-		Bucket:    options.Bucket,
-		DstPrefix: options.DstPrefix,
-		DstKey:    options.DstKey,
+		Client:      options.Client,
+		Region:      options.Region,
+		EndpointUrl: options.EndpointUrl,
+		Bucket:      options.Bucket,
+		DstPrefix:   options.DstPrefix,
+		DstKey:      options.DstKey,
 	}
 	rc.CreateFirstBlock(ctx)
 
@@ -257,10 +260,16 @@ func resolveClient(o *RecursiveConcatOptions) {
 	}
 
 	opts := []func(*config.LoadOptions) error{}
-	if o.Region != "" {
+	if o.EndpointUrl != "" {
+		opts = append(opts, config.WithEndpointResolverWithOptions(
+			aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+				return aws.Endpoint{
+					URL:           o.EndpointUrl,
+					SigningRegion: o.Region,
+				}, nil
+			})))
+	} else if o.Region != "" {
 		opts = append(opts, config.WithRegion(o.Region))
-	} else {
-		opts = append(opts, config.WithRegion("us-west-2"))
 	}
 
 	cfg, err := config.LoadDefaultConfig(context.TODO(), opts...)

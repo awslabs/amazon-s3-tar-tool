@@ -44,6 +44,7 @@ type S3TarS3Options struct {
 	DeleteSource       bool
 	SmallFiles         bool
 	Region             string
+	EndpointUrl        string
 	TarFormat          string
 }
 
