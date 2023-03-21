@@ -5,6 +5,7 @@ package s3tar
 
 import (
 	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/csv"
 	"errors"
@@ -95,28 +96,20 @@ func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstBucket, d
 		return err
 	}
 	uploadId := *output.UploadId
-	copySourceRange := fmt.Sprintf("bytes=%d-%d", start, start+size-1)
-
 	//Infof(ctx, "s3://%s/%s", bucket, dstKey)
 
-	input := s3.UploadPartCopyInput{
-		Bucket:          &dstBucket,
-		Key:             &dstKey,
-		PartNumber:      1,
-		UploadId:        &uploadId,
-		CopySource:      aws.String(bucket + "/" + key),
-		CopySourceRange: aws.String(copySourceRange),
-	}
-
-	res, err := svc.UploadPartCopy(ctx, &input)
-	if err != nil {
-		return err
-	}
-
-	parts := []types.CompletedPart{
-		types.CompletedPart{
-			ETag:       res.CopyPartResult.ETag,
-			PartNumber: 1},
+	var parts []types.CompletedPart
+	if size > 0 {
+		copySourceRange := fmt.Sprintf("bytes=%d-%d", start, start+size-1)
+		parts, err = extractCopyRange(ctx, svc, bucket, key, dstBucket, dstKey, uploadId, copySourceRange)
+		if err != nil {
+			return err
+		}
+	} else {
+		parts, err = extractEmptyRange(ctx, svc, dstBucket, dstKey, uploadId)
+		if err != nil {
+			return err
+		}
 	}
 
 	completeOutput, err := svc.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
@@ -132,6 +125,50 @@ func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstBucket, d
 	}
 	Infof(ctx, "x s3://%s/%s", *completeOutput.Bucket, *completeOutput.Key)
 	return nil
+}
+
+func extractEmptyRange(ctx context.Context, svc *s3.Client, dstBucket string, dstKey string, uploadId string) ([]types.CompletedPart, error) {
+	input := s3.UploadPartInput{
+		Bucket:     &dstBucket,
+		Key:        &dstKey,
+		PartNumber: 1,
+		UploadId:   &uploadId,
+		Body:       new(bytes.Buffer),
+	}
+
+	res, err := svc.UploadPart(ctx, &input)
+	if err != nil {
+		return nil, err
+	}
+	parts := []types.CompletedPart{
+		types.CompletedPart{
+			ETag:       res.ETag,
+			PartNumber: 1},
+	}
+	return parts, nil
+}
+
+func extractCopyRange(ctx context.Context, svc *s3.Client, bucket string, key string, dstBucket string, dstKey string, uploadId string, copySourceRange string) ([]types.CompletedPart, error) {
+	input := s3.UploadPartCopyInput{
+		Bucket:          &dstBucket,
+		Key:             &dstKey,
+		PartNumber:      1,
+		UploadId:        &uploadId,
+		CopySource:      aws.String(bucket + "/" + key),
+		CopySourceRange: aws.String(copySourceRange),
+	}
+
+	res, err := svc.UploadPartCopy(ctx, &input)
+
+	if err != nil {
+		return nil, err
+	}
+	parts := []types.CompletedPart{
+		types.CompletedPart{
+			ETag:       res.CopyPartResult.ETag,
+			PartNumber: 1},
+	}
+	return parts, nil
 }
 
 type TOC []*FileMetadata
