@@ -29,6 +29,7 @@ func main() {
 	var extract bool
 	var list bool
 	var region string
+	var endpointUrl string
 	var archiveFile string // file flag
 	var destination string
 	var threads uint
@@ -51,7 +52,7 @@ func main() {
 			},
 		},
 		Version:     VersionMsg,
-		UsageText:   "s3tar --region us-west-2 [-c --create] | [-x --extract] [-v] -f s3://bucket/prefix/file.tar s3://bucket/prefix",
+		UsageText:   "s3tar --region us-west-2 [--endpointUrl s3.us-west-2.amazonaws.com] [-c --create] | [-x --extract] [-v] -f s3://bucket/prefix/file.tar s3://bucket/prefix",
 		Copyright:   "Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.",
 		Description: "s3tar helps aggregates existing Amazon S3 objects without the need to download files",
 		Flags: []cli.Flag{
@@ -87,6 +88,12 @@ func main() {
 				Value:       "",
 				Usage:       "specify region",
 				Destination: &region,
+			},
+			&cli.StringFlag{
+				Name:        "endpointUrl",
+				Value:       "",
+				Usage:       "specify endpointUrl",
+				Destination: &endpointUrl,
 			},
 			&cli.StringFlag{
 				Name:        "file",
@@ -142,6 +149,20 @@ func main() {
 			if archiveFile == "" {
 				exitError(2, "-f is a required flag\n")
 			}
+			var loadOption config.LoadOptionsFunc
+			if endpointUrl != "" {
+				loadOption = config.WithEndpointResolverWithOptions(
+					aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+						return aws.Endpoint{
+							URL:               endpointUrl,
+							HostnameImmutable: true,
+							SigningRegion:     region,
+							Source:            aws.EndpointSourceCustom,
+						}, nil
+					}))
+			} else {
+				loadOption = config.WithRegion(region)
+			}
 			if create {
 				src := cCtx.Args().First() // TODO implement dir list
 				if src == "" && manifestPath == "" {
@@ -153,6 +174,7 @@ func main() {
 					Threads:            threads,
 					DeleteSource:       false,
 					Region:             region,
+					EndpointUrl:        endpointUrl,
 					TarFormat:          tarFormat,
 				}
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(archiveFile)
@@ -161,7 +183,7 @@ func main() {
 
 				ctx = s3tar.SetLogLevel(ctx, logLevel)
 
-				cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region), config.WithRetryer(func() aws.Retryer {
+				cfg, err := config.LoadDefaultConfig(ctx, loadOption, config.WithRetryer(func() aws.Retryer {
 					return retry.AddWithMaxAttempts(retry.NewStandard(), 10)
 				}))
 				if err != nil {
@@ -182,7 +204,7 @@ func main() {
 					destination = destination + "/"
 					fmt.Printf("appending '/' to destination path\n")
 				}
-				cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
+				cfg, err := config.LoadDefaultConfig(context.TODO(), loadOption)
 				if err != nil {
 					log.Fatal(err.Error())
 				}
@@ -192,6 +214,7 @@ func main() {
 					Threads:      threads,
 					DeleteSource: false,
 					Region:       region,
+					EndpointUrl:  endpointUrl,
 				}
 				s3opts.SrcBucket, s3opts.SrcKey = s3tar.ExtractBucketAndPath(archiveFile)
 				s3opts.SrcPrefix = filepath.Dir(s3opts.SrcKey)
@@ -201,7 +224,7 @@ func main() {
 				return s3tar.Extract(ctx, svc, prefix, s3opts)
 			} else if list {
 				bucket, key := s3tar.ExtractBucketAndPath(archiveFile)
-				cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
+				cfg, err := config.LoadDefaultConfig(context.TODO(), loadOption)
 				if err != nil {
 					log.Fatal(err.Error())
 				}
