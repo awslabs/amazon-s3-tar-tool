@@ -33,7 +33,7 @@ func Extract(ctx context.Context, svc *s3.Client, prefix string, opts *S3TarS3Op
 		return err
 	}
 
-	toc, err := extractCSVToc(ctx, svc, opts.SrcBucket, opts.SrcKey)
+	toc, err := extractCSVToc(ctx, svc, opts.SrcBucket, opts.SrcKey, opts.ExternalToc)
 	if err != nil {
 		return err
 	}
@@ -75,11 +75,11 @@ func checkIfObjectExists(ctx context.Context, svc *s3.Client, bucket, key string
 }
 
 // List will print out the contents in a tar, we do this by just printing from the TOC.
-func List(ctx context.Context, svc *s3.Client, bucket, key string) (TOC, error) {
+func List(ctx context.Context, svc *s3.Client, bucket, key string, opts *S3TarS3Options) (TOC, error) {
 	if err := checkIfObjectExists(ctx, svc, bucket, key); err != nil {
 		return nil, err
 	}
-	toc, err := extractCSVToc(ctx, svc, bucket, key)
+	toc, err := extractCSVToc(ctx, svc, bucket, key, opts.ExternalToc)
 	if err != nil {
 		return TOC{}, err
 	}
@@ -204,19 +204,30 @@ retry:
 	return hdr, headerSize, err
 }
 
-func extractCSVToc(ctx context.Context, svc *s3.Client, bucket, key string) (TOC, error) {
+func extractCSVToc(ctx context.Context, svc *s3.Client, bucket, key, externalToc string) (TOC, error) {
 	var m TOC
 
-	hdr, offset, err := extractTarHeader(ctx, svc, bucket, key)
-	if err != nil {
-		return m, err
+	var output io.ReadCloser
+	// for regular s3tar files that have a toc in them, else files with external TOCs
+	if externalToc == "" {
+		hdr, offset, err := extractTarHeader(ctx, svc, bucket, key)
+		if err != nil {
+			return m, err
+		}
+		// extract the csv now that we know the length of the CSV
+		output, err = getObjectRange(ctx, svc, bucket, key, offset, offset+hdr.Size-1)
+		if err != nil {
+			return m, err
+		}
+	} else {
+		fmt.Printf("using external-toc: %s\n", externalToc)
+		var err error
+		output, err = loadFile(ctx, svc, externalToc)
+		if err != nil {
+			return m, err
+		}
 	}
-	// extract the csv now that we know the length of the CSV
-	output, err := getObjectRange(ctx, svc, bucket, key, offset, offset+hdr.Size-1)
-	if err != nil {
-		return m, err
-	}
-
+	defer output.Close()
 	r := csv.NewReader(output)
 	for {
 		record, err := r.Read()
@@ -245,19 +256,4 @@ func extractCSVToc(ctx context.Context, svc *s3.Client, bucket, key string) (TOC
 		})
 	}
 	return m, nil
-}
-
-func getObjectRange(ctx context.Context, svc *s3.Client, bucket, key string, start, end int64) (io.ReadCloser, error) {
-	byteRange := fmt.Sprintf("bytes=%d-%d", start, end)
-	params := &s3.GetObjectInput{
-		Range:  aws.String(byteRange),
-		Key:    &key,
-		Bucket: &bucket,
-	}
-	output, err := svc.GetObject(ctx, params)
-	if err != nil {
-		return output.Body, err
-	}
-	return output.Body, nil
-
 }

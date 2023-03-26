@@ -28,6 +28,7 @@ func main() {
 	var create bool
 	var extract bool
 	var list bool
+	var generateToc bool
 	var region string
 	var endpointUrl string
 	var archiveFile string // file flag
@@ -37,6 +38,7 @@ func main() {
 	var manifestPath string
 	var tarFormat string
 	var extended bool
+	var externalToc string
 
 	cli.VersionFlag = &cli.BoolFlag{
 		Name:    "print-version",
@@ -78,6 +80,12 @@ func main() {
 				Destination: &list,
 			},
 			&cli.BoolFlag{
+				Name:        "generate-toc",
+				Value:       false,
+				Usage:       "command to generate a toc.csv for an existing tarball",
+				Destination: &generateToc,
+			},
+			&cli.BoolFlag{
 				Name:    "verbose",
 				Value:   false,
 				Usage:   "verbose level v, vv, vvv",
@@ -105,7 +113,7 @@ func main() {
 			&cli.StringFlag{
 				Name:        "location",
 				Value:       "",
-				Usage:       "destination to extract",
+				Usage:       "destination to extract | destination of TOC (must be local)",
 				Aliases:     []string{"C"},
 				Destination: &destination,
 			},
@@ -140,10 +148,16 @@ func main() {
 				Usage:       "--extended prints out manifest with: name,byte location,content-length,Etag",
 				Destination: &extended,
 			},
+			&cli.StringFlag{
+				Name:        "external-toc",
+				Value:       "",
+				Usage:       "specifies an external toc for files not containing one",
+				Destination: &externalToc,
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
 			logLevel := parseLogLevel(cCtx.Count("verbose"))
-			if region == "" {
+			if region == "" && !generateToc {
 				exitError(1, "region is missing\n")
 			}
 			if archiveFile == "" {
@@ -215,6 +229,7 @@ func main() {
 					DeleteSource: false,
 					Region:       region,
 					EndpointUrl:  endpointUrl,
+					ExternalToc:  externalToc,
 				}
 				s3opts.SrcBucket, s3opts.SrcKey = s3tar.ExtractBucketAndPath(archiveFile)
 				s3opts.SrcPrefix = filepath.Dir(s3opts.SrcKey)
@@ -229,7 +244,14 @@ func main() {
 					log.Fatal(err.Error())
 				}
 				svc := s3.NewFromConfig(cfg)
-				toc, err := s3tar.List(ctx, svc, bucket, key)
+				s3opts := &s3tar.S3TarS3Options{
+					Threads:      threads,
+					DeleteSource: false,
+					Region:       region,
+					EndpointUrl:  endpointUrl,
+					ExternalToc:  externalToc,
+				}
+				toc, err := s3tar.List(ctx, svc, bucket, key, s3opts)
 				if err != nil {
 					log.Fatal(err.Error())
 				}
@@ -239,6 +261,12 @@ func main() {
 					} else {
 						fmt.Printf("%s\n", f.Filename)
 					}
+				}
+			} else if generateToc {
+				// s3tar --generate-toc -f my-previous-archive.tar -C /home/user/my-previous-archive.toc.csv
+				err := s3tar.GenerateToc(archiveFile, destination, &s3tar.S3TarS3Options{})
+				if err != nil {
+					log.Fatal(err.Error())
 				}
 			} else {
 				exitError(3, "operation not implemented, provide create or extract flag\n")

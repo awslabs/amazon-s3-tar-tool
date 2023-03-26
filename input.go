@@ -6,54 +6,19 @@ package s3tar
 import (
 	"context"
 	"encoding/csv"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"io"
 	"log"
-	"os"
 	"strconv"
-	"strings"
-
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-func LoadCSV(ctx context.Context, fpath string, skipHeader bool) ([]*S3Obj, error) {
-
-	var r io.ReadCloser
-	var err error
-	if strings.Contains(fpath, "s3://") {
-		r, err = loadS3CSV(ctx, fpath)
-	} else {
-		r, err = loadLocalFile(fpath)
+func LoadCSV(ctx context.Context, svc *s3.Client, fpath string, skipHeader bool) ([]*S3Obj, error) {
+	r, err := loadFile(ctx, svc, fpath)
+	if err != nil {
+		return nil, err
 	}
 	defer r.Close()
-	if err != nil {
-		return nil, err
-	}
-
 	return parseCSV(r, skipHeader)
-
-}
-
-func loadS3CSV(ctx context.Context, s3path string) (io.ReadCloser, error) {
-
-	client := GetS3Client(ctx)
-	bucket, key := ExtractBucketAndPath(s3path)
-
-	output, err := client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: &bucket,
-		Key:    &key,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return output.Body, nil
-}
-
-func loadLocalFile(fpath string) (io.ReadCloser, error) {
-	f, err := os.Open(fpath)
-	if err != nil {
-		return nil, err
-	}
-	return f, err
 }
 
 func parseCSV(f io.Reader, skipHeader bool) ([]*S3Obj, error) {

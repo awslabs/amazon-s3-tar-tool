@@ -9,7 +9,9 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"io"
 	"log"
+	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -63,7 +65,6 @@ func createCSVTOC(offset int64, headers []*S3Obj, objectList []*S3Obj) *bytes.Bu
 
 	for i := 0; i < len(objectList); i++ {
 		currLocation += headers[i].Size
-		// log.Printf("%d -> %d -> %s", currLocation, objectList[i].Size, *objectList[i].Key)
 		line := []string{}
 		line = append(line,
 			*objectList[i].Key,
@@ -114,4 +115,50 @@ func buildFirstPart(csvData []byte) *S3Obj {
 	endPadding := NewS3Obj()
 	endPadding.AddData(buf.Bytes())
 	return endPadding
+}
+
+// GenerateToc creates a TOC csv of an existing TAR file (not created by s3tar)
+// tar file MUST NOT have compression.
+// tar file must be on the local file system to.
+// TODO: It should be possible to generate a TOC from an existing TAR already by only reading the headers and skipping the data.
+func GenerateToc(tarFile, outputToc string, opts *S3TarS3Options) error {
+
+	r, err := os.Open(tarFile)
+	if err != nil {
+		panic(err)
+	}
+	defer r.Close()
+
+	w, err := os.Create(outputToc)
+	if err != nil {
+		panic(err)
+	}
+	defer w.Close()
+
+	cw := csv.NewWriter(w)
+	tr := tar.NewReader(r)
+	for {
+		h, err := tr.Next()
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if err == io.EOF {
+			break
+		}
+
+		offset, err := r.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return err
+		}
+
+		offsetStr := fmt.Sprintf("%d", offset)
+		size := fmt.Sprintf("%d", h.Size)
+		record := []string{h.Name, offsetStr, size, ""}
+		if err = cw.Write(record); err != nil {
+			return err
+		}
+
+	}
+	cw.Flush()
+	return nil
 }

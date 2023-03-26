@@ -51,7 +51,7 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 	var objectList []*S3Obj
 	if opts.SrcManifest != "" {
 		var err error
-		objectList, err = LoadCSV(ctx, opts.SrcManifest, opts.SkipManifestHeader)
+		objectList, err = LoadCSV(ctx, svc, opts.SrcManifest, opts.SkipManifestHeader)
 		if err != nil {
 			log.Fatal(err.Error())
 		}

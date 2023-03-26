@@ -10,9 +10,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
+	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -46,6 +49,7 @@ type S3TarS3Options struct {
 	Region             string
 	EndpointUrl        string
 	TarFormat          string
+	ExternalToc        string
 }
 
 func findMinMaxPartRange(objectSize int64) (int64, int64, int64) {
@@ -241,6 +245,34 @@ func putObject(ctx context.Context, svc *s3.Client, bucket, key string, data []b
 		ContentLength: int64(len(data)),
 	}
 	return svc.PutObject(ctx, input)
+}
+
+func getObject(ctx context.Context, svc *s3.Client, bucket, key string) (io.ReadCloser, error) {
+	return getObjectRange(ctx, svc, bucket, key, 0, 0)
+}
+func getObjectRange(ctx context.Context, svc *s3.Client, bucket, key string, start, end int64) (io.ReadCloser, error) {
+	params := &s3.GetObjectInput{
+		Key:    &key,
+		Bucket: &bucket,
+	}
+	if end != 0 {
+		byteRange := fmt.Sprintf("bytes=%d-%d", start, end)
+		params.Range = &byteRange
+	}
+	output, err := svc.GetObject(ctx, params)
+	if err != nil {
+		return output.Body, err
+	}
+	return output.Body, nil
+}
+
+func loadFile(ctx context.Context, svc *s3.Client, path string) (io.ReadCloser, error) {
+	if strings.Contains(path, "s3://") {
+		bucket, key := ExtractBucketAndPath(path)
+		return getObject(ctx, svc, bucket, key)
+	} else {
+		return os.Open(path)
+	}
 }
 
 // DeleteAllMultiparts helper function to clear ALL MultipartUploads in a bucket. This will delete all incomplete (or in progress) MPUs for a bucket.
