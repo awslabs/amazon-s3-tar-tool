@@ -30,7 +30,7 @@ const (
 )
 
 var (
-	extractS3 = regexp.MustCompile(`s3:\/\/(.[^\/]*)\/(.*)`)
+	extractS3 = regexp.MustCompile(`s3://(.[^/]*)/?(.*)`)
 )
 
 // S3TarS3Options options to create an archive

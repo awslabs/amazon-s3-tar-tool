@@ -50,15 +50,17 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 
 	var objectList []*S3Obj
 	if opts.SrcManifest != "" {
+		Infof(ctx, "using manifest file %s", opts.SrcManifest)
 		var err error
 		objectList, err = LoadCSV(ctx, svc, opts.SrcManifest, opts.SkipManifestHeader)
 		if err != nil {
 			log.Fatal(err.Error())
 		}
-	} else if opts.SrcBucket != "" && opts.SrcPrefix != "" {
+	} else if opts.SrcBucket != "" {
+		Infof(ctx, "using source bucket '%s' and prefix '%s'", opts.SrcBucket, opts.SrcPrefix)
 		objectList = listAllObjects(ctx, svc, opts.SrcBucket, opts.SrcPrefix)
 	} else {
-		log.Fatal("Error with source data sourcing")
+		Fatalf(ctx, "Error, manifest file or source bucket are required")
 	}
 
 	Infof(ctx, "processing %d Amazon S3 Objects", len(objectList))
