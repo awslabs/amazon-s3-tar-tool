@@ -6,16 +6,15 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
-	"os"
-	"path/filepath"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3tar "github.com/awslabs/amazon-s3-tar-tool"
 	"github.com/urfave/cli/v2"
+	"log"
+	"os"
+	"path/filepath"
 )
 
 var (
@@ -201,14 +200,7 @@ func main() {
 				}
 
 				ctx = s3tar.SetLogLevel(ctx, logLevel)
-
-				cfg, err := config.LoadDefaultConfig(ctx, loadOption, config.WithRetryer(func() aws.Retryer {
-					return retry.AddWithMaxAttempts(retry.NewStandard(), 10)
-				}))
-				if err != nil {
-					log.Fatal(err.Error())
-				}
-				svc := s3.NewFromConfig(cfg)
+				svc := s3Client(ctx, loadOption)
 				s3tar.ServerSideTar(ctx, svc, s3opts)
 			} else if extract {
 
@@ -223,12 +215,7 @@ func main() {
 					destination = destination + "/"
 					fmt.Printf("appending '/' to destination path\n")
 				}
-				cfg, err := config.LoadDefaultConfig(context.TODO(), loadOption)
-				if err != nil {
-					log.Fatal(err.Error())
-				}
-				svc := s3.NewFromConfig(cfg)
-
+				svc := s3Client(ctx, loadOption)
 				s3opts := &s3tar.S3TarS3Options{
 					Threads:      threads,
 					DeleteSource: false,
@@ -244,11 +231,7 @@ func main() {
 				return s3tar.Extract(ctx, svc, prefix, s3opts)
 			} else if list {
 				bucket, key := s3tar.ExtractBucketAndPath(archiveFile)
-				cfg, err := config.LoadDefaultConfig(context.TODO(), loadOption)
-				if err != nil {
-					log.Fatal(err.Error())
-				}
-				svc := s3.NewFromConfig(cfg)
+				svc := s3Client(ctx, loadOption)
 				s3opts := &s3tar.S3TarS3Options{
 					Threads:      threads,
 					DeleteSource: false,
@@ -284,6 +267,39 @@ func main() {
 	if err := app.Run(os.Args); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func s3Client(ctx context.Context, opts ...func(*config.LoadOptions) error) *s3.Client {
+
+	retryer := config.WithRetryer(func() aws.Retryer {
+		return retry.NewStandard(func(o *retry.StandardOptions) {
+			o.MaxAttempts = 10
+			o.Retryables = []retry.IsErrorRetryable{
+				retry.NoRetryCanceledError{},
+				retry.RetryableError{},
+				// replace RetryableConnectionError with our custom version so we can fail
+				// early in case DNS resolves fail. This is useful for incorrect region names
+				CustomRetryableConnectionError{},
+				retry.RetryableHTTPStatusCode{
+					Codes: retry.DefaultRetryableHTTPStatusCodes,
+				},
+				retry.RetryableErrorCode{
+					Codes: retry.DefaultRetryableErrorCodes,
+				},
+				retry.RetryableErrorCode{
+					Codes: retry.DefaultThrottleErrorCodes,
+				},
+			}
+		})
+	})
+	withDefaultOpts := append([]func(*config.LoadOptions) error{retryer}, opts...)
+	cfg, err := config.LoadDefaultConfig(ctx, withDefaultOpts...)
+
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	return s3.NewFromConfig(cfg)
+
 }
 
 func parseLogLevel(count int) int {
