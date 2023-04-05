@@ -13,9 +13,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3tar "github.com/awslabs/amazon-s3-tar-tool"
 	"github.com/urfave/cli/v2"
+)
+
+type contextKey string
+
+const (
+	contextKeyEC2Client = contextKey("ec2-client")
 )
 
 var (
@@ -158,9 +165,13 @@ func main() {
 		},
 		Action: func(cCtx *cli.Context) error {
 			logLevel := parseLogLevel(cCtx.Count("verbose"))
+			ctx = s3tar.SetLogLevel(ctx, logLevel)
+
+			// Region is mandatory, except when generate TOC
 			if region == "" && !generateToc {
 				exitError(1, "region is missing\n")
 			}
+
 			if archiveFile == "" {
 				exitError(2, "-f is a required flag\n")
 			}
@@ -176,6 +187,32 @@ func main() {
 						}, nil
 					}))
 			} else {
+				// If region is informed, validate if it is a valid region name.
+				// Validate only if endpointUrl is not informed!
+				if region != "" {
+					// Using the SDK's default configuration, loading additional config
+					// and credentials values from the environment variables, shared
+					// credentials, and shared configuration files
+					cfg, err := config.LoadDefaultConfig(context.TODO())
+					if err != nil {
+						log.Fatalf("unable to load SDK config, %v", err)
+					}
+					ec2Client := ec2.NewFromConfig(cfg)
+					ctxEc2 := context.WithValue(ctx, contextKeyEC2Client, ec2Client)
+					resp, err := ec2Client.DescribeRegions(ctxEc2, &ec2.DescribeRegionsInput{
+						RegionNames: []string{region},
+					})
+					if err != nil {
+						log.Fatalf("unable to describe region name '%v', %v", region, err)
+					}
+					if len(resp.Regions) != 1 {
+						log.Fatalf("unable to describe region name '%v', expected length is 1, got %d", region, len(resp.Regions))
+					}
+					awsRegionName := aws.ToString(resp.Regions[0].RegionName)
+					if awsRegionName != region {
+						log.Fatalf("unable to describe region name '%v', got '%v'", region, awsRegionName)
+					}
+				}
 				loadOption = config.WithRegion(region)
 			}
 			if create {
@@ -200,14 +237,13 @@ func main() {
 					exitError(5, "source directory must be a valid S3 URI.\n")
 				}
 
-				ctx = s3tar.SetLogLevel(ctx, logLevel)
-
 				cfg, err := config.LoadDefaultConfig(ctx, loadOption, config.WithRetryer(func() aws.Retryer {
 					return retry.AddWithMaxAttempts(retry.NewStandard(), 10)
 				}))
 				if err != nil {
 					log.Fatal(err.Error())
 				}
+
 				svc := s3.NewFromConfig(cfg)
 				s3tar.ServerSideTar(ctx, svc, s3opts)
 			} else if extract {
