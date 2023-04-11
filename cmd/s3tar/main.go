@@ -6,15 +6,16 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3tar "github.com/awslabs/amazon-s3-tar-tool"
 	"github.com/urfave/cli/v2"
-	"log"
-	"os"
-	"path/filepath"
 )
 
 var (
@@ -194,9 +195,11 @@ func main() {
 				}
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(archiveFile)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
-				s3opts.SrcBucket, s3opts.SrcPrefix = s3tar.ExtractBucketAndPath(src)
-				if s3opts.SrcBucket == "" {
-					exitError(5, "source directory must be a valid S3 URI.\n")
+				if src != "" {
+					s3opts.SrcBucket, s3opts.SrcPrefix = s3tar.ExtractBucketAndPath(src)
+					if s3opts.SrcBucket == "" {
+						exitError(5, "source directory must be a valid S3 URI.\n")
+					}
 				}
 
 				ctx = s3tar.SetLogLevel(ctx, logLevel)
