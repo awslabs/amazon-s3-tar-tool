@@ -24,6 +24,12 @@ var (
 )
 
 func main() {
+	err := run(os.Args)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+}
+func run(args []string) error {
 	ctx := s3tar.SetupLogger(context.Background())
 	var create bool
 	var extract bool
@@ -179,9 +185,6 @@ func main() {
 			}
 			if create {
 				src := cCtx.Args().First() // TODO implement dir list
-				if src == "" && manifestPath == "" {
-					exitError(4, "source directory or manifest file is required.\n")
-				}
 
 				s3opts := &s3tar.S3TarS3Options{
 					SrcManifest:        manifestPath,
@@ -195,8 +198,8 @@ func main() {
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(archiveFile)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
 				s3opts.SrcBucket, s3opts.SrcPrefix = s3tar.ExtractBucketAndPath(src)
-				if s3opts.SrcBucket == "" {
-					exitError(5, "source directory must be a valid S3 URI.\n")
+				if s3opts.SrcBucket == "" && manifestPath == "" {
+					exitError(4, "source directory or manifest file is required.\n")
 				}
 
 				ctx = s3tar.SetLogLevel(ctx, logLevel)
@@ -259,14 +262,11 @@ func main() {
 			} else {
 				exitError(3, "operation not implemented, provide create or extract flag\n")
 			}
-
 			return nil
 		},
 	}
 
-	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
-	}
+	return app.Run(args)
 }
 
 func s3Client(ctx context.Context, opts ...func(*config.LoadOptions) error) *s3.Client {
@@ -274,22 +274,6 @@ func s3Client(ctx context.Context, opts ...func(*config.LoadOptions) error) *s3.
 	retryer := config.WithRetryer(func() aws.Retryer {
 		return retry.NewStandard(func(o *retry.StandardOptions) {
 			o.MaxAttempts = 10
-			o.Retryables = []retry.IsErrorRetryable{
-				retry.NoRetryCanceledError{},
-				retry.RetryableError{},
-				// replace RetryableConnectionError with our custom version so we can fail
-				// early in case DNS resolves fail. This is useful for incorrect region names
-				CustomRetryableConnectionError{},
-				retry.RetryableHTTPStatusCode{
-					Codes: retry.DefaultRetryableHTTPStatusCodes,
-				},
-				retry.RetryableErrorCode{
-					Codes: retry.DefaultRetryableErrorCodes,
-				},
-				retry.RetryableErrorCode{
-					Codes: retry.DefaultThrottleErrorCodes,
-				},
-			}
 		})
 	})
 	withDefaultOpts := append([]func(*config.LoadOptions) error{retryer}, opts...)
