@@ -85,6 +85,7 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 
 	concatObj := NewS3Obj()
 	if smallFiles {
+		Debugf(ctx, "Processing small files")
 		var err error
 		rc, err = NewRecursiveConcat(ctx, RecursiveConcatOptions{
 			Bucket:      opts.DstBucket,
@@ -102,6 +103,7 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 		Debugf(ctx, "prepended manifest: %s Size: %d len.Data: %d", *manifestObj.Key, manifestObj.Size, len(manifestObj.Data))
 		concatObj, _ = processSmallFiles(ctx, objectList, opts.DstKey, opts)
 	} else {
+		Debugf(ctx, "Processing large files")
 		var err error
 		concatObj, err = processLargeFiles(ctx, svc, objectList, opts)
 		if err != nil {
