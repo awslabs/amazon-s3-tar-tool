@@ -1,0 +1,35 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Go
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+    - uses: actions/checkout@v3
+    - name: configure aws credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        role-to-assume: arn:aws:iam::030315542523:role/github-actions-s3tar
+        role-session-name: githubsession
+        aws-region: us-west-2
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: 1.19
+    - name: Test API
+      run: go test -v
+    - name: Test s3tar
+      run: S3TAR_TEST_BUCKET=${{ vars.S3TAR_TEST_BUCKET }} S3TAR_TEST_REGION=${{ vars.S3TAR_TEST_REGION }} go test -v ./cmd/s3tar/
