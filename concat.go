@@ -150,13 +150,12 @@ func (r *RecursiveConcat) mergePair(ctx context.Context, objectList []*S3Obj, tr
 			part, err = r.uploadPart(o, uploadId, bucket, key, int32(i+1))
 			accumSize += int64(len(o.Data))
 		} else if o.Size > 0 {
-			// Debugf(ctx,"uploadPartCopy bucket:%s key:%s %d", o.Bucket, *o.Key, len(o.Data))
+			Debugf(ctx, "uploadPartCopy bucket:%s key:%s %d", o.Bucket, *o.Key, len(o.Data))
 			part, err = r.uploadPartCopy(o, uploadId, bucket, key, int32(i+1), trim, o.Size)
 			accumSize += (int64(o.Size) - trim)
 		}
 		if err != nil {
 			Debugf(ctx, "some error 1")
-			// fmt.Print(err.Error())
 			return complete, err
 		}
 		if o.Size > 0 {

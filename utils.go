@@ -4,6 +4,7 @@
 package s3tar
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"crypto/md5"
@@ -45,11 +46,17 @@ type S3TarS3Options struct {
 	DstKey             string
 	Threads            uint
 	DeleteSource       bool
-	SmallFiles         bool
 	Region             string
 	EndpointUrl        string
-	TarFormat          string
 	ExternalToc        string
+	tarFormat          tar.Format
+	storageClass       types.StorageClass
+	extractPrefix      string
+}
+
+func (o *S3TarS3Options) Copy() S3TarS3Options {
+	to := *o
+	return to
 }
 
 func findMinMaxPartRange(objectSize int64) (int64, int64, int64) {

@@ -41,10 +41,10 @@ var (
 
 func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Options) {
 
-	if opts.TarFormat == "gnu" {
-		tarFormat = tar.FormatGNU
+	tarFormat = opts.tarFormat
+	if tarFormat == tar.FormatUnknown {
+		tarFormat = tar.FormatPAX
 	}
-
 	ctx := context.WithValue(incoming, contextKeyS3Client, svc)
 	start := time.Now()
 
@@ -97,10 +97,10 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 		if err != nil {
 			log.Fatal(err.Error())
 		}
-		Debugf(ctx, "Processing manifest")
+		Debugf(ctx, "building toc")
 		manifestObj, _ := buildToc(ctx, objectList)
 		objectList = append([]*S3Obj{manifestObj}, objectList...)
-		Debugf(ctx, "prepended manifest: %s Size: %d len.Data: %d", *manifestObj.Key, manifestObj.Size, len(manifestObj.Data))
+		Debugf(ctx, "prepended toc: %s Size: %d len.Data: %d", *manifestObj.Key, manifestObj.Size, len(manifestObj.Data))
 		concatObj, _ = processSmallFiles(ctx, objectList, opts.DstKey, opts)
 	} else {
 		Debugf(ctx, "Processing large files")
@@ -118,6 +118,9 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 		filepath.Join(opts.DstPrefix, opts.DstKey, "headers"),
 	}
 	for _, path := range scratchDirs {
+		if path == "" || path == "/" {
+			continue
+		}
 		deleteList := listAllObjects(ctx, svc, opts.DstBucket, path)
 		err := deleteObjectList(ctx, opts, deleteList)
 		if err != nil {
@@ -289,7 +292,7 @@ func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj,
 		return nil, err
 	}
 
-	finalObject, err := redistribute(ctx, concatObj, beginningPad, opts.DstBucket, opts.DstKey)
+	finalObject, err := redistribute(ctx, concatObj, beginningPad, opts.DstBucket, opts.DstKey, opts.storageClass)
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +304,7 @@ func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj,
 
 // redistribute will try to evenly distribute the object into equal size parts.
 // it will also trim whatever offset passed, helpful to remove the front padding
-func redistribute(ctx context.Context, obj *S3Obj, trimoffset int64, bucket, key string) (*S3Obj, error) {
+func redistribute(ctx context.Context, obj *S3Obj, trimoffset int64, bucket, key string, storageClass types.StorageClass) (*S3Obj, error) {
 	finalSize := obj.Size - trimoffset
 	min, max, mid := findMinMaxPartRange(finalSize)
 	var r int64 = 0
@@ -342,8 +345,9 @@ func redistribute(ctx context.Context, obj *S3Obj, trimoffset int64, bucket, key
 	complete := NewS3Obj()
 	client := GetS3Client(ctx)
 	output, err := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
+		Bucket:       aws.String(bucket),
+		Key:          aws.String(key),
+		StorageClass: storageClass,
 	})
 	if err != nil {
 		Fatalf(ctx, err.Error())
@@ -505,7 +509,8 @@ func processSmallFiles(ctx context.Context, objectList []*S3Obj, dstKey string, 
 			return NewS3Obj(), err
 		}
 	}
-	return finalObject, nil
+
+	return redistribute(ctx, finalObject, 0, opts.DstBucket, opts.DstKey, opts.storageClass)
 
 }
 
@@ -526,7 +531,7 @@ func _processSmallFiles(ctx context.Context, objectList []*S3Obj, start, end int
 			header.Bucket = opts.DstBucket
 			pairs := []*S3Obj{&header, {
 				Object:  objectList[i].Object, // fix this
-				Bucket:  opts.SrcBucket,
+				Bucket:  objectList[i].Bucket,
 				Data:    objectList[i].Data,
 				PartNum: partNum,
 			}}

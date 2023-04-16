@@ -18,9 +18,10 @@ import (
 )
 
 var (
-	Version    = "0.0.0"
-	Commit     = ""
-	VersionMsg = fmt.Sprintf("%s-%s", Version, Commit)
+	Version          = "0.0.0"
+	Commit           = ""
+	VersionMsg       = fmt.Sprintf("%s-%s", Version, Commit)
+	newArchiveClient = s3tar.NewArchiveClient
 )
 
 func main() {
@@ -45,6 +46,7 @@ func run(args []string) error {
 	var tarFormat string
 	var extended bool
 	var externalToc string
+	var storageClass string
 
 	cli.VersionFlag = &cli.BoolFlag{
 		Name:    "print-version",
@@ -160,6 +162,12 @@ func run(args []string) error {
 				Usage:       "specifies an external toc for files not containing one",
 				Destination: &externalToc,
 			},
+			&cli.StringFlag{
+				Name:        "storage-class",
+				Value:       "STANDARD",
+				Usage:       "storage class of the object",
+				Destination: &storageClass,
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
 			logLevel := parseLogLevel(cCtx.Count("verbose"))
@@ -193,7 +201,6 @@ func run(args []string) error {
 					DeleteSource:       false,
 					Region:             region,
 					EndpointUrl:        endpointUrl,
-					TarFormat:          tarFormat,
 				}
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(archiveFile)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
@@ -204,7 +211,10 @@ func run(args []string) error {
 
 				ctx = s3tar.SetLogLevel(ctx, logLevel)
 				svc := s3Client(ctx, loadOption)
-				s3tar.ServerSideTar(ctx, svc, s3opts)
+				archiveClient := newArchiveClient(svc)
+				return archiveClient.Create(ctx, s3opts,
+					s3tar.WithStorageClass(storageClass),
+					s3tar.WithTarFormat(tarFormat))
 			} else if extract {
 
 				if archiveFile == "" {
@@ -218,7 +228,6 @@ func run(args []string) error {
 					destination = destination + "/"
 					fmt.Printf("appending '/' to destination path\n")
 				}
-				svc := s3Client(ctx, loadOption)
 				s3opts := &s3tar.S3TarS3Options{
 					Threads:      threads,
 					DeleteSource: false,
@@ -231,9 +240,10 @@ func run(args []string) error {
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(destination)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
 				ctx = s3tar.SetLogLevel(ctx, logLevel)
-				return s3tar.Extract(ctx, svc, prefix, s3opts)
+				svc := s3Client(ctx, loadOption)
+				archiveClient := newArchiveClient(svc)
+				return archiveClient.Extract(ctx, s3opts, s3tar.WithExtractPrefix(prefix))
 			} else if list {
-				bucket, key := s3tar.ExtractBucketAndPath(archiveFile)
 				svc := s3Client(ctx, loadOption)
 				s3opts := &s3tar.S3TarS3Options{
 					Threads:      threads,
@@ -242,7 +252,8 @@ func run(args []string) error {
 					EndpointUrl:  endpointUrl,
 					ExternalToc:  externalToc,
 				}
-				toc, err := s3tar.List(ctx, svc, bucket, key, s3opts)
+				archiveClient := newArchiveClient(svc)
+				toc, err := archiveClient.List(ctx, archiveFile, s3opts)
 				if err != nil {
 					log.Fatal(err.Error())
 				}

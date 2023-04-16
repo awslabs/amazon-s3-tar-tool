@@ -30,6 +30,6 @@ jobs:
       with:
         go-version: 1.19
     - name: Test API
-      run: go test -v
+      run: S3TAR_TEST_BUCKET=${{ vars.S3TAR_TEST_BUCKET }} S3TAR_TEST_REGION=${{ vars.S3TAR_TEST_REGION }} go test -count=1 -v
     - name: Test s3tar
-      run: S3TAR_TEST_BUCKET=${{ vars.S3TAR_TEST_BUCKET }} S3TAR_TEST_REGION=${{ vars.S3TAR_TEST_REGION }} go test -v ./cmd/s3tar/
+      run: S3TAR_TEST_BUCKET=${{ vars.S3TAR_TEST_BUCKET }} S3TAR_TEST_REGION=${{ vars.S3TAR_TEST_REGION }} go test -count=1 -v ./cmd/s3tar/
