@@ -105,7 +105,7 @@ func (a *mockArchiveManifest) Create(ctx context.Context, options *s3tar.S3TarS3
 	return nil
 }
 
-func Test_aaa(t *testing.T) {
+func Test_cli(t *testing.T) {
 
 	firstArgs := os.Args[0]
 	type args struct {
