@@ -10,25 +10,41 @@ Using the Multipart Uploads API, in particular `UploadPartCopy` API, we can copy
 
 The tool follows the tar syntax for creation and extraction of tarballs with a few additions to support Amazon S3 operations. 
 
-| flag           | description                                                           | required             |
-|----------------|-----------------------------------------------------------------------|----------------------|
-| -c             | create                                                                | yes, unless using -x |
-| -x             | extract                                                               | yes, unless using -c |
-| -C             | destination to extract                                                | yes when using -x    |
-| -f             | file that will be generated or extracted: s3://bucket/prefix/file.tar | yes                  |
-| -t             | list files in archive                                                 | no                   |
-| --extended     | to use with -t to extend the output to filename,loc,length,etag       | no                   |
-| -m             | manifest input                                                        | no                   |
-| --region       | aws region where the bucket is                                        | yes                  |
-| -v, -vv, -vvv  | level of verbose                                                      | no                   |    
-| --format       | Tar format PAX or GNU, default is PAX                                 | no                   |
-| --endpointUrl  | specify an Amazon S3 endpoint                                         | no                   |
+| flag            | description                                                           | required             |
+|-----------------|-----------------------------------------------------------------------|----------------------|
+| -c              | create                                                                | yes, unless using -x |
+| -x              | extract                                                               | yes, unless using -c |
+| -C              | destination to extract                                                | yes when using -x    |
+| -f              | file that will be generated or extracted: s3://bucket/prefix/file.tar | yes                  |
+| -t              | list files in archive                                                 | no                   |
+| --extended      | to use with -t to extend the output to filename,loc,length,etag       | no                   |
+| -m              | manifest input                                                        | no                   |
+| --region        | aws region where the bucket is                                        | yes                  |
+| -v, -vv, -vvv   | level of verbose                                                      | no                   |    
+| --format        | Tar format PAX or GNU, default is PAX                                 | no                   |
+| --endpointUrl   | specify an Amazon S3 endpoint                                         | no                   |
+| --storage-class | specify an Amazon S3 storage class, default is STANDARD               | no                   |
 
 
 The syntax for creating and extracting tarballs remains similar to traditional tar tools:
 ```bash
    s3tar --region region [-c --create] | [-x --extract] [-v] -f s3://bucket/prefix/file.tar s3://bucket/prefix
 ```
+
+#### Storage Class Options
+
+| Storage Class       |
+|---------------------|
+| STANDARD            | 
+| REDUCED_REDUNDANCY  | 
+| STANDARD_IA         |
+| ONEZONE_IA          |
+| INTELLIGENT_TIERING |
+| GLACIER             |
+| DEEP_ARCHIVE        |
+| OUTPOSTS            |
+| GLACIER_IR          |
+
 
 ### Examples
 
