@@ -33,7 +33,6 @@ var (
 	srcBucketLarge, srcKeyLarge = ExtractBucketAndPath(sourceLargeDataDir)
 	//
 
-	extractDir                              = "s3://" + testBucket + "/extract/"
 	manifestTarTestFile                     = "s3://" + testBucket + "/manifest-tests.tar"
 	srcBucketManifestTar, srcKeyManifestTar = ExtractBucketAndPath(manifestTarTestFile)
 	manifestTestCsvFile                     = "manifest.csv"
@@ -141,12 +140,21 @@ func TestArchive_Create(t *testing.T) {
 	}
 }
 
-func TestArchiveClient_Extract(t *testing.T) {
+func TestArchiveClient_ExtractManifest(t *testing.T) {
 	ctx := SetupLogger(context.Background())
 	ctx = SetLogLevel(ctx, 0)
 
+	extractDir := "s3://" + testBucket + "/extract/"
 	dstBucket, dstKey := ExtractBucketAndPath(extractDir)
 	dstPrefix := filepath.Dir(dstKey)
+
+	extractDirSmall := "s3://" + testBucket + "/extract-small/"
+	dstExtractSmallBucket, dstExtractSmallKey := ExtractBucketAndPath(extractDirSmall)
+	dstExtractSmallPrefix := filepath.Dir(dstExtractSmallKey)
+
+	extractDirLarge := "s3://" + testBucket + "/extract-large/"
+	dstExtractLargeBucket, dstExtractLargeKey := ExtractBucketAndPath(extractDirLarge)
+	dstExtractLargePrefix := filepath.Dir(dstExtractLargeKey)
 
 	type fields struct {
 		client *s3.Client
@@ -157,13 +165,14 @@ func TestArchiveClient_Extract(t *testing.T) {
 		optFns  []func(options *S3TarS3Options)
 	}
 	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		wantErr bool
+		name     string
+		fields   fields
+		args     args
+		fileList []TestFile
+		wantErr  bool
 	}{
 		{
-			name:   "extract",
+			name:   "extract-manifest",
 			fields: struct{ client *s3.Client }{client: client},
 			args: struct {
 				ctx     context.Context
@@ -175,12 +184,52 @@ func TestArchiveClient_Extract(t *testing.T) {
 					SrcBucket: srcBucketManifestTar,
 					SrcKey:    srcKeyManifestTar,
 					DstBucket: dstBucket,
-					//DstKey:    dstKey,
 					DstPrefix: dstPrefix,
 					Region:    testRegion,
 				},
 				optFns: nil,
 			},
+			fileList: append(largeTestFileList, smallTestFileList...),
+		},
+		{
+			name:   "extract-small",
+			fields: struct{ client *s3.Client }{client: client},
+			args: struct {
+				ctx     context.Context
+				options *S3TarS3Options
+				optFns  []func(options *S3TarS3Options)
+			}{
+				ctx: ctx,
+				options: &S3TarS3Options{
+					SrcBucket: dstBucketSmall,
+					SrcKey:    dstKeySmall,
+					DstBucket: dstExtractSmallBucket,
+					DstPrefix: dstExtractSmallPrefix,
+					Region:    testRegion,
+				},
+				optFns: nil,
+			},
+			fileList: smallTestFileList,
+		},
+		{
+			name:   "extract-large",
+			fields: struct{ client *s3.Client }{client: client},
+			args: struct {
+				ctx     context.Context
+				options *S3TarS3Options
+				optFns  []func(options *S3TarS3Options)
+			}{
+				ctx: ctx,
+				options: &S3TarS3Options{
+					SrcBucket: dstBucketLarge,
+					SrcKey:    dstKeyLarge,
+					DstBucket: dstExtractLargeBucket,
+					DstPrefix: dstExtractLargePrefix,
+					Region:    testRegion,
+				},
+				optFns: nil,
+			},
+			fileList: largeTestFileList,
 		},
 	}
 	for _, tt := range tests {
@@ -191,8 +240,8 @@ func TestArchiveClient_Extract(t *testing.T) {
 			if err := a.Extract(tt.args.ctx, tt.args.options, tt.args.optFns...); (err != nil) != tt.wantErr {
 				t.Errorf("Extract() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			for _, f := range append(largeTestFileList, smallTestFileList...) {
-				extractLocation := fmt.Sprintf("extract/%s", f.Key)
+			for _, f := range tt.fileList {
+				extractLocation := fmt.Sprintf("%s/%s", tt.args.options.DstPrefix, f.Key)
 				headOutput, err := client.HeadObject(context.TODO(), &s3.HeadObjectInput{
 					Key:    &extractLocation,
 					Bucket: &f.Bucket,

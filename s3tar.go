@@ -630,22 +630,17 @@ func createGroups(ctx context.Context, objectList []*S3Obj) ([]Index, int64) {
 }
 
 func concatObjects(ctx context.Context, client *s3.Client, trimFirstBytes int, objectList []*S3Obj, bucket, key string) (*S3Obj, error) {
-	// postfix, err := randomHex(16)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// key = key + "." + postfix
 	complete := NewS3Obj()
 	output, err := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
+		Bucket: &bucket,
+		Key:    &key,
 	})
 	if err != nil {
 		return complete, err
 	}
 	var accumSize int64 = 0
 	uploadId := *output.UploadId
-	parts := []types.CompletedPart{}
+	var parts []types.CompletedPart
 	m := sync.RWMutex{}
 	swg := sizedwaitgroup.New(100)
 	for i, object := range objectList {
