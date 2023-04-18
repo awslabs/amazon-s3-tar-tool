@@ -39,9 +39,8 @@ func (a *ArchiveClient) Create(ctx context.Context, options *S3TarS3Options, opt
 		return err
 	}
 
-	ServerSideTar(ctx, a.client, &opts)
+	return ServerSideTar(ctx, a.client, &opts)
 
-	return nil
 }
 
 func (a *ArchiveClient) Extract(ctx context.Context, options *S3TarS3Options, optFns ...func(options *S3TarS3Options)) error {

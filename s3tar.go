@@ -39,7 +39,7 @@ var (
 	rc        *RecursiveConcat
 )
 
-func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Options) {
+func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Options) error {
 
 	tarFormat = opts.tarFormat
 	if tarFormat == tar.FormatUnknown {
@@ -48,19 +48,25 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 	ctx := context.WithValue(incoming, contextKeyS3Client, svc)
 	start := time.Now()
 
+	defer func() {
+		cleanUp(ctx, svc, opts)
+		elapsed := time.Since(start)
+		Infof(ctx, "Time elapsed: %s", elapsed)
+	}()
+
 	var objectList []*S3Obj
 	if opts.SrcManifest != "" {
 		Infof(ctx, "using manifest file %s", opts.SrcManifest)
 		var err error
 		objectList, err = LoadCSV(ctx, svc, opts.SrcManifest, opts.SkipManifestHeader)
 		if err != nil {
-			log.Fatal(err.Error())
+			return err
 		}
 	} else if opts.SrcBucket != "" {
 		Infof(ctx, "using source bucket '%s' and prefix '%s'", opts.SrcBucket, opts.SrcPrefix)
 		objectList = listAllObjects(ctx, svc, opts.SrcBucket, opts.SrcPrefix)
 	} else {
-		Fatalf(ctx, "Error, manifest file or source bucket are required")
+		return fmt.Errorf("manifest file or source bucket required")
 	}
 
 	Infof(ctx, "processing %d Amazon S3 Objects", len(objectList))
@@ -77,10 +83,10 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 	Infof(ctx, "final size %dGB (without tar headers + padding)", totalSize/1024/1024/1024)
 
 	if totalSize < fileSizeMin {
-		Fatalf(ctx, "Total size (%d) of all objects is less than 5MB. Include more objects", totalSize)
+		return fmt.Errorf("total size (%d) of all objects is less than 5MB. Include more objects", totalSize)
 	}
 	if totalSize > fileSizeMax {
-		Fatalf(ctx, "Total size (%d) of all objects is more than 5TB. Reduce the number of objects", totalSize)
+		return fmt.Errorf("total size (%d) of all objects is more than 5TB. Reduce the number of objects", totalSize)
 	}
 
 	concatObj := NewS3Obj()
@@ -95,7 +101,7 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 			EndpointUrl: opts.EndpointUrl,
 		})
 		if err != nil {
-			log.Fatal(err.Error())
+			return err
 		}
 		Debugf(ctx, "building toc")
 		manifestObj, _ := buildToc(ctx, objectList)
@@ -107,11 +113,15 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 		var err error
 		concatObj, err = processLargeFiles(ctx, svc, objectList, opts)
 		if err != nil {
-			Warnf(ctx, err.Error())
-			// allow to continue so we can delete all intermediate files.
+			return err
 		}
 	}
 
+	Infof(ctx, "Final Object: s3://%s/%s", concatObj.Bucket, *concatObj.Key)
+	return nil
+}
+
+func cleanUp(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) {
 	Infof(ctx, "deleting all intermediate objects")
 	scratchDirs := []string{
 		filepath.Join(opts.DstPrefix, opts.DstKey, "parts"),
@@ -127,11 +137,6 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 			Warnf(ctx, "Unable to delete intermediate objects at: %s %s", opts.DstBucket, path)
 		}
 	}
-
-	Infof(ctx, "Final Object: s3://%s/%s", concatObj.Bucket, *concatObj.Key)
-	elapsed := time.Since(start)
-	Infof(ctx, "Time elapsed: %s", elapsed)
-
 }
 
 // concatObjAndHeader will only perform pair (obj1 + hdr2) concatenation

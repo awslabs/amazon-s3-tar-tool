@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 COMMIT := `git rev-parse --short HEAD`
-VERSION := `git describe --tags`
+VERSION := `git describe --tags || echo "no-tag"`
 
 LDFLAGS=-ldflags "-X=main.Version=$(VERSION) -X=main.Commit=$(COMMIT)"
 
