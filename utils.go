@@ -44,7 +44,7 @@ type S3TarS3Options struct {
 	DstBucket          string
 	DstPrefix          string
 	DstKey             string
-	Threads            uint
+	Threads            int
 	DeleteSource       bool
 	Region             string
 	EndpointUrl        string
@@ -200,12 +200,36 @@ func ExtractBucketAndPath(s3url string) (bucket string, path string) {
 	return
 }
 
-func listAllObjects(ctx context.Context, client *s3.Client, Bucket, Prefix string) []*S3Obj {
-	var objectList []types.Object
+func filter[T any](ss []T, test func(T) bool) (ret []T) {
+	for _, s := range ss {
+		if test(s) {
+			ret = append(ret, s)
+		}
+	}
+	return
+}
+
+func removeDirs(object types.Object) bool {
+	name := *object.Key
+	if string(name[len(name)-1]) == "/" {
+		return false
+	}
+	return true
+}
+
+func ListAllObjects(ctx context.Context, client *s3.Client, Bucket, Prefix string, filterFns ...func(types.Object) bool) ([]*S3Obj, int64, error) {
 	input := &s3.ListObjectsV2Input{
 		Bucket: &Bucket,
 		Prefix: &Prefix,
 	}
+	var accum int64
+
+	ctr := 1
+	var list []*S3Obj
+	var defaultFilter []func(types.Object) bool
+	defaultFilter = append(defaultFilter, removeDirs)
+	allFilters := append(defaultFilter, filterFns...)
+
 	p := s3.NewListObjectsV2Paginator(client, input)
 	for {
 		if !p.HasMorePages() {
@@ -214,33 +238,53 @@ func listAllObjects(ctx context.Context, client *s3.Client, Bucket, Prefix strin
 		output, err := p.NextPage(ctx)
 		if err != nil {
 			log.Print(err.Error())
-			break
+			return list, accum, err
 		}
-		objectList = append(objectList, output.Contents...)
-	}
-
-	// filter paths out
-	cleanList := make([]types.Object, len(objectList))
-	ctr := 0
-	for _, obj := range objectList {
-		name := *obj.Key
-		if string(name[len(name)-1]) == "/" {
-			continue
+		contents := output.Contents
+		if len(allFilters) > 0 {
+			for _, tf := range allFilters {
+				contents = filter(contents, tf)
+			}
 		}
-		cleanList[ctr] = obj
-		ctr++
-	}
-	cleanList = cleanList[0:ctr]
-
-	list := make([]*S3Obj, len(cleanList))
-	for i := 0; i < len(cleanList); i++ {
-		list[i] = &S3Obj{
-			Object:  cleanList[i],
-			Bucket:  Bucket,
-			PartNum: i + 1,
+		for _, o := range contents {
+			list = append(list, &S3Obj{
+				Object:  o,
+				Bucket:  Bucket,
+				PartNum: ctr,
+			})
+			ctr += 1
+			accum += estimateObjectSize(o.Size)
 		}
 	}
 
+	return list, accum, nil
+}
+
+// estimate the object size including header and padding
+func estimateObjectSize(size int64) int64 {
+	pad := findPadding(size)
+	return int64(paxTarHeaderSize) + size + pad
+}
+
+func BreakUpList(objectList []*S3Obj, limitSize int64) [][]*S3Obj {
+
+	var list [][]*S3Obj
+	var currentList []*S3Obj
+	var accum int64 = 0
+	for i := 0; i < len(objectList); i++ {
+		currentObjectSize := estimateObjectSize(objectList[i].Size)
+		if accum+currentObjectSize < limitSize {
+			currentList = append(currentList, objectList[i])
+			accum += currentObjectSize
+		} else {
+			list = append(list, currentList)
+			currentList = append([]*S3Obj{}, objectList[i])
+			accum = currentObjectSize
+		}
+	}
+	if len(currentList) > 0 {
+		list = append(list, currentList)
+	}
 	return list
 }
 

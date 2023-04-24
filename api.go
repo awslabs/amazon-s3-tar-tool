@@ -10,9 +10,10 @@ import (
 )
 
 type Archiver interface {
-	Create(context.Context, *S3TarS3Options, ...func(options *S3TarS3Options)) error
-	Extract(context.Context, *S3TarS3Options, ...func(options *S3TarS3Options)) error
-	List(context.Context, string, *S3TarS3Options, ...func(options *S3TarS3Options)) (TOC, error)
+	Create(context.Context, *S3TarS3Options, ...func(*S3TarS3Options)) error
+	CreateFromList(context.Context, []*S3Obj, *S3TarS3Options, ...func(*S3TarS3Options)) error
+	Extract(context.Context, *S3TarS3Options, ...func(*S3TarS3Options)) error
+	List(context.Context, string, *S3TarS3Options, ...func(*S3TarS3Options)) (TOC, error)
 }
 
 func NewArchiveClient(client *s3.Client) Archiver {
@@ -25,10 +26,31 @@ type ArchiveClient struct {
 
 // Create an archive from existing files in Amazon S3.
 func (a *ArchiveClient) Create(ctx context.Context, options *S3TarS3Options, optFns ...func(options *S3TarS3Options)) error {
+
+	opts, err := a.checkArgs(options, optFns)
+	if err != nil {
+		return err
+	}
+	return ServerSideTar(ctx, a.client, opts)
+
+}
+
+func (a *ArchiveClient) CreateFromList(ctx context.Context, objectList []*S3Obj, options *S3TarS3Options, optFns ...func(*S3TarS3Options)) error {
+
+	opts, err := a.checkArgs(options, optFns)
+	if err != nil {
+		return err
+	}
+
+	return createFromList(ctx, a.client, objectList, opts)
+}
+
+func (a *ArchiveClient) checkArgs(options *S3TarS3Options, optFns []func(s3Options *S3TarS3Options)) (*S3TarS3Options, error) {
+
 	opts := options.Copy()
 
 	if err := checkCreateArgs(&opts); err != nil {
-		return err
+		return nil, err
 	}
 
 	for _, fn := range optFns {
@@ -36,10 +58,10 @@ func (a *ArchiveClient) Create(ctx context.Context, options *S3TarS3Options, opt
 	}
 
 	if err := validateStorageClass(&opts); err != nil {
-		return err
+		return nil, err
 	}
 
-	return ServerSideTar(ctx, a.client, &opts)
+	return &opts, nil
 
 }
 
@@ -128,6 +150,9 @@ func checkCreateArgs(opts *S3TarS3Options) error {
 	if opts.storageClass == "" {
 		opts.storageClass = types.StorageClassStandard
 	}
+	if opts.Threads == 0 {
+		opts.Threads = 100
+	}
 	opts.tarFormat = tar.FormatPAX
 	return nil
 }
@@ -141,11 +166,17 @@ func checkExtractArgs(opts *S3TarS3Options) error {
 	if opts.DstPrefix == "" {
 		return fmt.Errorf("destination prefix required")
 	}
+	if opts.Threads == 0 {
+		opts.Threads = 100
+	}
 	return nil
 }
 func checkListArgs(opts *S3TarS3Options) error {
 	if opts.SrcBucket == "" && opts.SrcKey == "" {
 		return fmt.Errorf("s3url required s3://bucket/key.tar")
+	}
+	if opts.Threads == 0 {
+		opts.Threads = 100
 	}
 	return nil
 }

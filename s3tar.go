@@ -37,15 +37,37 @@ var (
 	pad             = make([]byte, beginningPad)
 	tarFormat       = tar.FormatPAX
 	rc        *RecursiveConcat
+	threads   = 100
 )
 
-func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Options) error {
+func ServerSideTar(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) error {
+
+	var objectList []*S3Obj
+	var err error
+	if opts.SrcManifest != "" {
+		Infof(ctx, "using manifest file %s", opts.SrcManifest)
+		objectList, _, err = LoadCSV(ctx, svc, opts.SrcManifest, opts.SkipManifestHeader)
+	} else if opts.SrcBucket != "" {
+		Infof(ctx, "using source bucket '%s' and prefix '%s'", opts.SrcBucket, opts.SrcPrefix)
+		objectList, _, err = ListAllObjects(ctx, svc, opts.SrcBucket, opts.SrcPrefix)
+	} else {
+		return fmt.Errorf("manifest file or source bucket required")
+	}
+	if err != nil {
+		return err
+	}
+
+	return createFromList(ctx, svc, objectList, opts)
+}
+
+func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) error {
 
 	tarFormat = opts.tarFormat
 	if tarFormat == tar.FormatUnknown {
 		tarFormat = tar.FormatPAX
 	}
-	ctx := context.WithValue(incoming, contextKeyS3Client, svc)
+	threads = opts.Threads
+	ctx = context.WithValue(ctx, contextKeyS3Client, svc)
 	start := time.Now()
 
 	defer func() {
@@ -53,21 +75,6 @@ func ServerSideTar(incoming context.Context, svc *s3.Client, opts *S3TarS3Option
 		elapsed := time.Since(start)
 		Infof(ctx, "Time elapsed: %s", elapsed)
 	}()
-
-	var objectList []*S3Obj
-	if opts.SrcManifest != "" {
-		Infof(ctx, "using manifest file %s", opts.SrcManifest)
-		var err error
-		objectList, err = LoadCSV(ctx, svc, opts.SrcManifest, opts.SkipManifestHeader)
-		if err != nil {
-			return err
-		}
-	} else if opts.SrcBucket != "" {
-		Infof(ctx, "using source bucket '%s' and prefix '%s'", opts.SrcBucket, opts.SrcPrefix)
-		objectList = listAllObjects(ctx, svc, opts.SrcBucket, opts.SrcPrefix)
-	} else {
-		return fmt.Errorf("manifest file or source bucket required")
-	}
 
 	Infof(ctx, "processing %d Amazon S3 Objects", len(objectList))
 
@@ -131,7 +138,7 @@ func cleanUp(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) {
 		if path == "" || path == "/" {
 			continue
 		}
-		deleteList := listAllObjects(ctx, svc, opts.DstBucket, path)
+		deleteList, _, _ := ListAllObjects(ctx, svc, opts.DstBucket, path)
 		err := deleteObjectList(ctx, opts, deleteList)
 		if err != nil {
 			Warnf(ctx, "Unable to delete intermediate objects at: %s %s", opts.DstBucket, path)
@@ -158,7 +165,7 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 	firstPart.Bucket = opts.DstBucket
 	objectList = append([]*S3Obj{firstPart}, objectList...)
 
-	wg := sizedwaitgroup.New(25)
+	wg := sizedwaitgroup.New(opts.Threads)
 	resultsChan := make(chan *S3Obj)
 	var bytesAccum int64
 	for i, obj := range objectList {
@@ -249,7 +256,7 @@ func breakUpList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts 
 
 	ConcatBatch := func(batchList [][]*S3Obj) ([]*S3Obj, error) {
 		g, ctx := errgroup.WithContext(ctx)
-		g.SetLimit(25)
+		g.SetLimit(opts.Threads)
 		results := make([]*S3Obj, len(batchGoupList))
 		for i, batch := range batchList {
 			i, batch := i, batch
@@ -361,7 +368,7 @@ func redistribute(ctx context.Context, obj *S3Obj, trimoffset int64, bucket, key
 
 	Redistribute := func(ctx context.Context, indexList []IndexLoc) ([]types.CompletedPart, error) {
 		g, ctx := errgroup.WithContext(ctx)
-		g.SetLimit(25)
+		g.SetLimit(threads)
 		parts := make([]types.CompletedPart, len(indexList))
 		for i, r := range indexList {
 			i, r := i, r
@@ -446,7 +453,7 @@ func processSmallFiles(ctx context.Context, objectList []*S3Obj, dstKey string, 
 
 	m := sync.Mutex{}
 	groups := []*S3Obj{}
-	swg := sizedwaitgroup.New(100)
+	swg := sizedwaitgroup.New(opts.Threads)
 	Debugf(ctx, "Created %d parts", len(indexList))
 	for i, p := range indexList {
 		Debugf(ctx, "Part %06d range: %d - %d", i+1, p.Start, p.End)
@@ -583,7 +590,7 @@ func estimateFinalSize(objectList []*S3Obj) int64 {
 	}
 	estimatedSize := int64(0)
 	for _, o := range objectList {
-		estimatedSize += o.Size + headerSize + blockSize
+		estimatedSize += o.Size + int64(headerSize+blockSize)
 	}
 	return estimatedSize
 }
@@ -647,7 +654,7 @@ func concatObjects(ctx context.Context, client *s3.Client, trimFirstBytes int, o
 	uploadId := *output.UploadId
 	var parts []types.CompletedPart
 	m := sync.RWMutex{}
-	swg := sizedwaitgroup.New(100)
+	swg := sizedwaitgroup.New(threads)
 	for i, object := range objectList {
 		partNum := int32(i + 1)
 		if len(object.Data) > 0 {
