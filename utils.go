@@ -140,6 +140,11 @@ func WithSize(size int64) func(*S3Obj) {
 		o.Size = size
 	}
 }
+func WithETag(etag string) func(*S3Obj) {
+	return func(o *S3Obj) {
+		o.ETag = &etag
+	}
+}
 
 func NewS3ObjFromObject(o types.Object) *S3Obj {
 	return &S3Obj{Object: o}

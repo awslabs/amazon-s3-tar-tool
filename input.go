@@ -37,7 +37,7 @@ func parseCSV(f io.Reader, skipHeader bool) ([]*S3Obj, int64, error) {
 		if lineNumber == 0 && skipHeader {
 			continue
 		}
-		if len(record) != 3 {
+		if len(record) < 3 {
 			log.Printf("not enough values in csv line. skipping line %d", lineNumber+1)
 			continue
 		}
@@ -48,9 +48,16 @@ func parseCSV(f io.Reader, skipHeader bool) ([]*S3Obj, int64, error) {
 			size = 0
 		}
 
-		obj := NewS3ObjOptions(
+		opts := []func(*S3Obj){
 			WithBucketAndKey(record[0], record[1]),
-			WithSize(size))
+			WithSize(size),
+		}
+
+		if len(record) > 3 {
+			opts = append(opts, WithETag(record[3]))
+		}
+
+		obj := NewS3ObjOptions(opts...)
 		data = append(data, obj)
 		accum += estimateObjectSize(size)
 	}
