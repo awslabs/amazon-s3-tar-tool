@@ -146,6 +146,19 @@ func cleanUp(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) {
 	}
 }
 
+func generateLastBlock(s int64, opts *S3TarS3Options) *S3Obj {
+	lastBlockSize := findPadding(s)
+	if lastBlockSize == 0 {
+		lastBlockSize = blockSize
+	}
+	lastBlockSize += blockSize * 2
+	lastBytes := make([]byte, lastBlockSize)
+	eofPadding := NewS3Obj()
+	eofPadding.AddData(lastBytes)
+	eofPadding.NoHeaderRequired = true
+	return eofPadding
+}
+
 // concatObjAndHeader will only perform pair (obj1 + hdr2) concatenation
 func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) []*S3Obj {
 
@@ -177,16 +190,8 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 			p2 = &h
 			bytesAccum += p1.Size + p2.Size
 		} else {
-			lastblockSize := findPadding(bytesAccum + obj.Size)
-			if lastblockSize == 0 {
-				lastblockSize = blockSize
-			}
-			lastblockSize += blockSize * 2
-			lastBytes := make([]byte, lastblockSize)
-			endPadding := NewS3Obj()
-			endPadding.AddData(lastBytes)
-			endPadding.NoHeaderRequired = true
-			p2 = endPadding
+			eofPadding := generateLastBlock(bytesAccum+obj.Size, opts)
+			p2 = eofPadding
 		}
 		pairs := []*S3Obj{p1, p2}
 		name := fmt.Sprintf("%d.part-%d.hdr", i, next)
@@ -439,20 +444,12 @@ func processSmallFiles(ctx context.Context, objectList []*S3Obj, dstKey string, 
 	client := GetS3Client(ctx)
 
 	indexList, totalSize := createGroups(ctx, objectList)
-	lastblockSize := findPadding(totalSize)
-	if lastblockSize == 0 {
-		lastblockSize = blockSize
-	}
-	lastblockSize += (blockSize * 2)
-	lastBytes := make([]byte, lastblockSize)
-	endPadding := NewS3Obj()
-	endPadding.AddData(lastBytes)
-	endPadding.NoHeaderRequired = true
-	objectList = append(objectList, endPadding)
+	eofPadding := generateLastBlock(totalSize, opts)
+	objectList = append(objectList, eofPadding)
 	indexList[len(indexList)-1].End = len(objectList) - 1
 
 	m := sync.Mutex{}
-	groups := []*S3Obj{}
+	var groups []*S3Obj
 	swg := sizedwaitgroup.New(opts.Threads)
 	Debugf(ctx, "Created %d parts", len(indexList))
 	for i, p := range indexList {
