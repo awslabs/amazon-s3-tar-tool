@@ -40,7 +40,7 @@ func Extract(ctx context.Context, svc *s3.Client, prefix string, opts *S3TarS3Op
 
 	extract := func() error {
 		g, _ := errgroup.WithContext(ctx)
-		g.SetLimit(50)
+		g.SetLimit(opts.Threads)
 
 		for _, f := range toc {
 			f := f

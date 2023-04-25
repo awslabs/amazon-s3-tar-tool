@@ -12,18 +12,19 @@ import (
 	"strconv"
 )
 
-func LoadCSV(ctx context.Context, svc *s3.Client, fpath string, skipHeader bool) ([]*S3Obj, error) {
+func LoadCSV(ctx context.Context, svc *s3.Client, fpath string, skipHeader bool) ([]*S3Obj, int64, error) {
 	r, err := loadFile(ctx, svc, fpath)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer r.Close()
 	return parseCSV(r, skipHeader)
 }
 
-func parseCSV(f io.Reader, skipHeader bool) ([]*S3Obj, error) {
+func parseCSV(f io.Reader, skipHeader bool) ([]*S3Obj, int64, error) {
 
-	data := []*S3Obj{}
+	var data []*S3Obj
+	var accum int64
 
 	r := csv.NewReader(f)
 	for lineNumber := 0; ; lineNumber++ {
@@ -31,7 +32,7 @@ func parseCSV(f io.Reader, skipHeader bool) ([]*S3Obj, error) {
 		if err == io.EOF {
 			break
 		} else if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if lineNumber == 0 && skipHeader {
 			continue
@@ -51,8 +52,9 @@ func parseCSV(f io.Reader, skipHeader bool) ([]*S3Obj, error) {
 			WithBucketAndKey(record[0], record[1]),
 			WithSize(size))
 		data = append(data, obj)
+		accum += estimateObjectSize(size)
 	}
 
-	return data, nil
+	return data, accum, nil
 
 }

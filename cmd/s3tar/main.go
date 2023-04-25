@@ -15,6 +15,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 var (
@@ -22,6 +23,12 @@ var (
 	Commit           = ""
 	VersionMsg       = fmt.Sprintf("%s-%s", Version, Commit)
 	newArchiveClient = s3tar.NewArchiveClient
+	listAllObjects   = s3tar.ListAllObjects
+	loadCSV          = s3tar.LoadCSV
+)
+
+const (
+	maxSize = 1024 * 1024 * 1024 * 1024 * 5
 )
 
 func main() {
@@ -40,13 +47,14 @@ func run(args []string) error {
 	var endpointUrl string
 	var archiveFile string // file flag
 	var destination string
-	var threads uint
+	var threads int
 	var skipManifestHeader bool
 	var manifestPath string
 	var tarFormat string
 	var extended bool
 	var externalToc string
 	var storageClass string
+	var sizeLimit int64
 
 	cli.VersionFlag = &cli.BoolFlag{
 		Name:    "print-version",
@@ -125,9 +133,9 @@ func run(args []string) error {
 				Aliases:     []string{"C"},
 				Destination: &destination,
 			},
-			&cli.UintFlag{
+			&cli.IntFlag{
 				Name:        "goroutines",
-				Value:       20,
+				Value:       100,
 				Usage:       "number of goroutines",
 				Destination: &threads,
 			},
@@ -168,6 +176,12 @@ func run(args []string) error {
 				Usage:       "storage class of the object",
 				Destination: &storageClass,
 			},
+			&cli.Int64Flag{
+				Name:        "size-limit",
+				Value:       maxSize,
+				Usage:       "limit the size of tars and break them into several parts (byte units). default 5TB",
+				Destination: &sizeLimit,
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
 			logLevel := parseLogLevel(cCtx.Count("verbose"))
@@ -176,6 +190,9 @@ func run(args []string) error {
 			}
 			if archiveFile == "" {
 				exitError(2, "-f is a required flag\n")
+			}
+			if sizeLimit > maxSize {
+				sizeLimit = maxSize
 			}
 			var loadOption config.LoadOptionsFunc
 			if endpointUrl != "" {
@@ -212,9 +229,43 @@ func run(args []string) error {
 				ctx = s3tar.SetLogLevel(ctx, logLevel)
 				svc := s3Client(ctx, loadOption)
 				archiveClient := newArchiveClient(svc)
-				return archiveClient.Create(ctx, s3opts,
-					s3tar.WithStorageClass(storageClass),
-					s3tar.WithTarFormat(tarFormat))
+
+				var objectList []*s3tar.S3Obj
+				var estimatedSize int64
+				var err error
+				if s3opts.SrcManifest != "" {
+					objectList, estimatedSize, err = loadCSV(ctx, svc, s3opts.SrcManifest, s3opts.SkipManifestHeader)
+				} else {
+					objectList, estimatedSize, err = listAllObjects(ctx, svc, s3opts.SrcBucket, s3opts.SrcPrefix)
+				}
+				if err != nil {
+					return err
+				}
+
+				s3tar.Infof(ctx, "estimated tar size: %d", estimatedSize)
+				if estimatedSize > sizeLimit {
+					archiveList := s3tar.BreakUpList(objectList, sizeLimit)
+					s3tar.Infof(ctx, "breaking up tar into %d parts", len(archiveList))
+					padWidth := getPadWidth(len(archiveList))
+					for i, archive := range archiveList {
+						fn := fmt.Sprintf("%s.%0*d.tar", archiveFile[:len(archiveFile)-4], padWidth, i)
+						s3tar.Infof(ctx, "creating %s", fn)
+						s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(fn)
+						s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
+						err := archiveClient.CreateFromList(ctx, archive, s3opts,
+							s3tar.WithStorageClass(storageClass),
+							s3tar.WithTarFormat(tarFormat))
+						if err != nil {
+							return err
+						}
+					}
+					return nil
+				} else {
+					return archiveClient.CreateFromList(ctx, objectList, s3opts,
+						s3tar.WithStorageClass(storageClass),
+						s3tar.WithTarFormat(tarFormat))
+				}
+
 			} else if extract {
 
 				if archiveFile == "" {
@@ -311,4 +362,12 @@ func parseLogLevel(count int) int {
 func exitError(code int, format string, v ...any) {
 	fmt.Printf(format, v...)
 	os.Exit(code)
+}
+
+func getPadWidth(length int) int {
+	padWidth := len(strconv.Itoa(length))
+	if padWidth == 1 {
+		padWidth = 2
+	}
+	return padWidth
 }
