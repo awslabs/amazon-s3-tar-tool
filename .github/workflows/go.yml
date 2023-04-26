@@ -21,7 +21,7 @@ jobs:
     - name: configure aws credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
-        role-to-assume: {{ secrets.AWS_ROLE }}
+        role-to-assume: ${{ secrets.AWS_ROLE }}
         role-session-name: githubsession
         aws-region: us-west-2
     - name: Set up Go
