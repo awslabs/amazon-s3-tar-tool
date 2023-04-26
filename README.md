@@ -1,5 +1,10 @@
 # Amazon S3 Tar Tool
 
+[![Go Build status](https://github.com/awslabs/amazon-s3-tar-tool/actions/workflows/go.yml/badge.svg?branch=main)](https://github.com/awslabs/amazon-s3-tar-tool/actions/workflows/go.yml)
+![go-version](https://img.shields.io/github/go-mod/go-version/awslabs/amazon-s3-tar-tool)
+[![API Reference](https://img.shields.io/badge/api-reference-blue.svg)](https://pkg.go.dev/github.com/awslabs/amazon-s3-tar-tool)
+[![Apache V2 License](https://img.shields.io/badge/license-Apache%20V2-blue.svg)](https://github.com/awslabs/amazon-s3-tar-tool/blob/main/LICENSE)
+
 s3tar is utility tool to create a tarball of existing objects in Amazon S3.
 
 s3tar allows customers to group existing Amazon S3 objects into TAR files without having to download the files. This cli tool leverages existing Amazon S3 APIs to create the archives on Amazon S3 that can be later transitioned to any of the cold storage tiers. The files generated follow the tar file format and can be extracted with standard tar tools.
