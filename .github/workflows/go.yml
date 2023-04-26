@@ -16,13 +16,12 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    environment: dev
     steps:
     - uses: actions/checkout@v3
     - name: configure aws credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
-        role-to-assume: arn:aws:iam::030315542523:role/github-actions-s3tar
+        role-to-assume: ${{ secrets.AWS_ROLE }}
         role-session-name: githubsession
         aws-region: us-west-2
     - name: Set up Go
@@ -30,6 +29,6 @@ jobs:
       with:
         go-version: 1.19
     - name: Test API
-      run: S3TAR_TEST_BUCKET=${{ vars.S3TAR_TEST_BUCKET }} S3TAR_TEST_REGION=${{ vars.S3TAR_TEST_REGION }} go test -count=1 -v
+      run: S3TAR_TEST_BUCKET=${{ secrets.S3TAR_TEST_BUCKET }} S3TAR_TEST_REGION=${{ secrets.S3TAR_TEST_REGION }} go test -count=1 -v
     - name: Test s3tar
-      run: S3TAR_TEST_BUCKET=${{ vars.S3TAR_TEST_BUCKET }} S3TAR_TEST_REGION=${{ vars.S3TAR_TEST_REGION }} go test -count=1 -v ./cmd/s3tar/
+      run: S3TAR_TEST_BUCKET=${{ secrets.S3TAR_TEST_BUCKET }} S3TAR_TEST_REGION=${{ secrets.S3TAR_TEST_REGION }} go test -count=1 -v ./cmd/s3tar/
