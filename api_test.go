@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -41,6 +42,19 @@ var (
 
 	expectedTOC TOC
 )
+
+func TestMain(m *testing.M) {
+	ctx := SetupLogger(context.Background())
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(testRegion))
+	if err != nil {
+		panic(err)
+	}
+	client = s3.NewFromConfig(cfg)
+	setup()
+	ret := m.Run()
+	teardown()
+	os.Exit(ret)
+}
 
 type TestFile struct {
 	ETag   string
@@ -135,6 +149,89 @@ func TestArchive_Create(t *testing.T) {
 			}
 			if err := a.Create(tt.args.ctx, tt.args.options, tt.args.optFns...); (err != nil) != tt.wantErr {
 				t.Errorf("Create() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestArchiveClient_EndOfFile(t *testing.T) {
+	ctx := SetupLogger(context.Background())
+	ctx = SetLogLevel(ctx, 0)
+
+	expectedResult := make([]byte, 512*2)
+
+	type fields struct {
+		client *s3.Client
+	}
+	type args struct {
+		tarFile string
+	}
+	tests := []struct {
+		name     string
+		fields   fields
+		args     args
+		expected []byte
+		wantErr  bool
+	}{
+		{
+			name:   "eof-check-small-file",
+			fields: struct{ client *s3.Client }{client: client},
+			args: struct {
+				tarFile string
+			}{
+				tarFile: simpleSmallDataTarTestFile,
+			},
+			expected: expectedResult,
+		},
+		{
+			name:   "eof-check-large-file",
+			fields: struct{ client *s3.Client }{client: client},
+			args: struct {
+				tarFile string
+			}{
+				tarFile: simpleLargeDataTarTestFile,
+			},
+			expected: expectedResult,
+		},
+		{
+			name:   "eof-check-manifest-file",
+			fields: struct{ client *s3.Client }{client: client},
+			args: struct {
+				tarFile string
+			}{
+				tarFile: manifestTarTestFile,
+			},
+			expected: expectedResult,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bucket, key := ExtractBucketAndPath(tt.args.tarFile)
+			headOutput, err := client.HeadObject(context.TODO(), &s3.HeadObjectInput{
+				Key:    &key,
+				Bucket: &bucket,
+			})
+			if err != nil {
+				t.Errorf(err.Error())
+			}
+			end := headOutput.ContentLength
+			start := end - (512 * 2)
+			r, err := getObjectRange(context.TODO(), client, bucket, key, start, end)
+			if err != nil {
+				t.Errorf(err.Error())
+			}
+			data, err := io.ReadAll(r)
+			if err != nil {
+				t.Errorf(err.Error())
+			}
+			if !bytes.Equal(data, tt.expected) {
+				// print where it doesn't match, useful for debugging
+				for i := 0; i < len(data); i++ {
+					if data[i] != 0x00 {
+						t.Errorf("data at idx:%d does not match 0: %x", i, data[i])
+					}
+				}
+				t.Fail()
 			}
 		})
 	}
@@ -398,19 +495,6 @@ func teardown() {
 	if err != nil {
 		panic(err)
 	}
-}
-
-func TestMain(m *testing.M) {
-	ctx := SetupLogger(context.Background())
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(testRegion))
-	if err != nil {
-		panic(err)
-	}
-	client = s3.NewFromConfig(cfg)
-	setup()
-	ret := m.Run()
-	teardown()
-	os.Exit(ret)
 }
 
 // because Extract uses MPU to be able to do CopyPart
