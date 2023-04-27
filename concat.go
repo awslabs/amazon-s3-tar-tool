@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
@@ -65,8 +64,6 @@ func NewRecursiveConcat(ctx context.Context, options RecursiveConcatOptions, opt
 	for _, fn := range optFns {
 		fn(&options)
 	}
-
-	resolveClient(&options)
 
 	rc := &RecursiveConcat{
 		Client:      options.Client,
@@ -244,6 +241,9 @@ func (r *RecursiveConcat) ConcatObjects(ctx context.Context, objectList []*S3Obj
 }
 
 func checkRequiredArgs(o *RecursiveConcatOptions) {
+	if o.Client == nil {
+		Fatalf(context.Background(), "s3 client is required")
+	}
 	if o.Bucket == "" {
 		Fatalf(context.Background(), "Bucket is required")
 	}
@@ -252,38 +252,6 @@ func checkRequiredArgs(o *RecursiveConcatOptions) {
 	}
 	if o.Region == "" {
 		Fatalf(context.Background(), "Region is required")
-	}
-}
-
-func resolveClient(o *RecursiveConcatOptions) {
-	if o.Client != nil {
-		return
-	}
-
-	opts := []func(*config.LoadOptions) error{}
-	if o.EndpointUrl != "" {
-		opts = append(opts, config.WithEndpointResolverWithOptions(
-			aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-				return aws.Endpoint{
-					URL:           o.EndpointUrl,
-					SigningRegion: o.Region,
-				}, nil
-			})))
-	} else if o.Region != "" {
-		opts = append(opts, config.WithRegion(o.Region))
-	}
-
-	cfg, err := config.LoadDefaultConfig(context.TODO(), opts...)
-	if err != nil {
-		Fatalf(context.Background(), err.Error())
-	}
-
-	o.Client = s3.NewFromConfig(cfg)
-}
-
-func WithClient(client *s3.Client, optFns ...func(*RecursiveConcatOptions)) func(*RecursiveConcatOptions) {
-	return func(o *RecursiveConcatOptions) {
-		o.Client = client
 	}
 }
 

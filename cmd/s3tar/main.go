@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -338,13 +339,20 @@ func s3Client(ctx context.Context, opts ...func(*config.LoadOptions) error) *s3.
 			o.MaxAttempts = 10
 		})
 	})
+	uaVersion := Version
+	if uaVersion == "0.0.0" { // Version is set at compile time
+		uaVersion = "dev-" + Commit
+	}
+	ua := func(options *s3.Options) {
+		options.APIOptions = append(options.APIOptions, middleware.AddUserAgentKeyValue("s3tar", Version))
+	}
 	withDefaultOpts := append([]func(*config.LoadOptions) error{retryer}, opts...)
 	cfg, err := config.LoadDefaultConfig(ctx, withDefaultOpts...)
 
 	if err != nil {
 		log.Fatal(err.Error())
 	}
-	return s3.NewFromConfig(cfg)
+	return s3.NewFromConfig(cfg, ua)
 
 }
 

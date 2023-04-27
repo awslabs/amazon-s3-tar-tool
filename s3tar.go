@@ -101,6 +101,7 @@ func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, op
 		Debugf(ctx, "Processing small files")
 		var err error
 		rc, err = NewRecursiveConcat(ctx, RecursiveConcatOptions{
+			Client:      svc,
 			Bucket:      opts.DstBucket,
 			DstPrefix:   opts.DstPrefix,
 			DstKey:      opts.DstKey,
@@ -164,6 +165,7 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 
 	ctx = context.WithValue(ctx, contextKeyS3Client, svc)
 	concater, err := NewRecursiveConcat(ctx, RecursiveConcatOptions{
+		Client:      svc,
 		Bucket:      opts.DstBucket,
 		DstPrefix:   opts.DstPrefix,
 		DstKey:      opts.DstKey,
