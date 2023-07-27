@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/middleware"
-	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3tar "github.com/awslabs/amazon-s3-tar-tool"
@@ -56,6 +55,7 @@ func run(args []string) error {
 	var externalToc string
 	var storageClass string
 	var sizeLimit int64
+	var maxAttempts int
 
 	cli.VersionFlag = &cli.BoolFlag{
 		Name:    "print-version",
@@ -156,7 +156,7 @@ func run(args []string) error {
 			&cli.StringFlag{
 				Name:        "format",
 				Value:       "pax",
-				Usage:       "tar format can be either pax or gnu. default is pax",
+				Usage:       "tar format can be either pax or gnu",
 				Destination: &tarFormat,
 			},
 			&cli.BoolFlag{
@@ -182,6 +182,12 @@ func run(args []string) error {
 				Value:       maxSize,
 				Usage:       "limit the size of tars and break them into several parts (byte units). default 5TB",
 				Destination: &sizeLimit,
+			},
+			&cli.IntFlag{
+				Name:        "max-attempts",
+				Value:       10,
+				Usage:       "number of maxAttempts for AWS Go SDK. 0 is unlimited",
+				Destination: &maxAttempts,
 			},
 		},
 		Action: func(cCtx *cli.Context) error {
@@ -209,6 +215,10 @@ func run(args []string) error {
 			} else {
 				loadOption = config.WithRegion(region)
 			}
+
+			retryOption := config.WithRetryMaxAttempts(maxAttempts)
+			svc := s3Client(ctx, loadOption, retryOption)
+
 			if create {
 				src := cCtx.Args().First() // TODO implement dir list
 
@@ -228,7 +238,6 @@ func run(args []string) error {
 				}
 
 				ctx = s3tar.SetLogLevel(ctx, logLevel)
-				svc := s3Client(ctx, loadOption)
 				archiveClient := newArchiveClient(svc)
 
 				var objectList []*s3tar.S3Obj
@@ -292,11 +301,9 @@ func run(args []string) error {
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(destination)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
 				ctx = s3tar.SetLogLevel(ctx, logLevel)
-				svc := s3Client(ctx, loadOption)
 				archiveClient := newArchiveClient(svc)
 				return archiveClient.Extract(ctx, s3opts, s3tar.WithExtractPrefix(prefix))
 			} else if list {
-				svc := s3Client(ctx, loadOption)
 				s3opts := &s3tar.S3TarS3Options{
 					Threads:      threads,
 					DeleteSource: false,
@@ -334,11 +341,6 @@ func run(args []string) error {
 
 func s3Client(ctx context.Context, opts ...func(*config.LoadOptions) error) *s3.Client {
 
-	retryer := config.WithRetryer(func() aws.Retryer {
-		return retry.NewStandard(func(o *retry.StandardOptions) {
-			o.MaxAttempts = 10
-		})
-	})
 	uaVersion := Version
 	if uaVersion == "0.0.0" { // Version is set at compile time
 		uaVersion = "dev-" + Commit
@@ -346,8 +348,8 @@ func s3Client(ctx context.Context, opts ...func(*config.LoadOptions) error) *s3.
 	ua := func(options *s3.Options) {
 		options.APIOptions = append(options.APIOptions, middleware.AddUserAgentKeyValue("s3tar", Version))
 	}
-	withDefaultOpts := append([]func(*config.LoadOptions) error{retryer}, opts...)
-	cfg, err := config.LoadDefaultConfig(ctx, withDefaultOpts...)
+
+	cfg, err := config.LoadDefaultConfig(ctx, opts...)
 
 	if err != nil {
 		log.Fatal(err.Error())

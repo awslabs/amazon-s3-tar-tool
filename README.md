@@ -171,6 +171,8 @@ The application is configured to retry every Amazon S3 operation up to 10 times 
 
 A make file is included that helps building the application for `darwin-arm64` `linux-arm64` `linux-amd64`. Place the resulting `s3tar` binary in your `PATH`. 
 
+If you get the error `dial tcp: lookup proxy.golang.org i/o timeout` it means your network is restricting access to that domain. You can bypass the proxy by setting the following variable: `export GOPROXY=direct` 
+
 ## How the tool works
 
 This tools utilizes Amazon S3 Multipart Upload (MPU). MPU allows you to upload a single object as a set of parts. Each part is a contiguous portion of the object's data. You can upload these object parts independently and in any order. After all parts of your object are uploaded, Amazon S3 assembles these parts and creates the object. 
