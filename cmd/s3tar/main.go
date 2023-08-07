@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/middleware"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3tar "github.com/awslabs/amazon-s3-tar-tool"
@@ -37,6 +38,7 @@ func main() {
 		log.Fatal(err.Error())
 	}
 }
+
 func run(args []string) error {
 	ctx := s3tar.SetupLogger(context.Background())
 	var create bool
@@ -216,7 +218,10 @@ func run(args []string) error {
 				loadOption = config.WithRegion(region)
 			}
 
-			retryOption := config.WithRetryMaxAttempts(maxAttempts)
+			retryOption := config.WithRetryer(func() aws.Retryer {
+				return retry.AddWithMaxAttempts(retry.NewStandard(), maxAttempts)
+			})
+
 			svc := s3Client(ctx, loadOption, retryOption)
 
 			if create {
