@@ -345,23 +345,15 @@ func DeleteAllMultiparts(client *s3.Client, bucket string) error {
 			UploadId: upload.UploadId,
 		})
 		if err != nil {
-			log.Fatalf(err.Error())
+			Infof(context.Background(), err.Error())
+			return err
 		}
 		// log.Printf("AbortedMultiUpload ok %s", r)
 	}
 	return nil
 }
 
-func GetS3Client(ctx context.Context) *s3.Client {
-	if client, ok := ctx.Value(contextKeyS3Client).(*s3.Client); ok {
-		return client
-	}
-	Fatalf(ctx, "GetS3Client not found")
-	return nil
-}
-
-func _deleteObjectList(ctx context.Context, opts *S3TarS3Options, objectList []*S3Obj) error {
-	client := GetS3Client(ctx)
+func _deleteObjectList(ctx context.Context, client *s3.Client, opts *S3TarS3Options, objectList []*S3Obj) error {
 	objects := make([]types.ObjectIdentifier, len(objectList))
 	for i := 0; i < len(objectList); i++ {
 		objects[i] = types.ObjectIdentifier{
@@ -380,13 +372,14 @@ func _deleteObjectList(ctx context.Context, opts *S3TarS3Options, objectList []*
 		return err
 	}
 	if len(response.Errors) > 0 {
-		log.Fatal("Error deleting objects")
+		Infof(ctx, "Error deleting objects")
+		return err
 	}
 	return nil
 
 }
 
-func deleteObjectList(ctx context.Context, opts *S3TarS3Options, objectList []*S3Obj) error {
+func deleteObjectList(ctx context.Context, svc *s3.Client, opts *S3TarS3Options, objectList []*S3Obj) error {
 	batch := 1000
 	for i := 0; i < len(objectList); i += batch {
 		start := i
@@ -395,7 +388,7 @@ func deleteObjectList(ctx context.Context, opts *S3TarS3Options, objectList []*S
 			end = len(objectList)
 		}
 		part := objectList[start:end]
-		err := _deleteObjectList(ctx, opts, part)
+		err := _deleteObjectList(ctx, svc, opts, part)
 		if err != nil {
 			return err
 		}

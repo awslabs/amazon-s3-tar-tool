@@ -71,6 +71,10 @@ func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, op
 	start := time.Now()
 
 	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("%v\n", r)
+			fmt.Printf("recovered from a panic. Trying to clean up.\n")
+		}
 		cleanUp(ctx, svc, opts)
 		elapsed := time.Since(start)
 		Infof(ctx, "Time elapsed: %s", elapsed)
@@ -115,7 +119,10 @@ func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, op
 		manifestObj, _ := buildToc(ctx, objectList)
 		objectList = append([]*S3Obj{manifestObj}, objectList...)
 		Debugf(ctx, "prepended toc: %s Size: %d len.Data: %d", *manifestObj.Key, manifestObj.Size, len(manifestObj.Data))
-		concatObj, _ = processSmallFiles(ctx, objectList, opts.DstKey, opts)
+		concatObj, err = processSmallFiles(ctx, svc, objectList, opts.DstKey, opts)
+		if err != nil {
+			return err
+		}
 	} else {
 		Debugf(ctx, "Processing large files")
 		var err error
@@ -140,7 +147,7 @@ func cleanUp(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) {
 			continue
 		}
 		deleteList, _, _ := ListAllObjects(ctx, svc, opts.DstBucket, path)
-		err := deleteObjectList(ctx, opts, deleteList)
+		err := deleteObjectList(ctx, svc, opts, deleteList)
 		if err != nil {
 			Warnf(ctx, "Unable to delete intermediate objects at: %s %s", opts.DstBucket, path)
 		}
@@ -202,7 +209,8 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 		go func(pairs []*S3Obj, key string, partNum int) {
 			res, err := concater.ConcatObjects(ctx, pairs, opts.DstBucket, key)
 			if err != nil {
-				Fatalf(ctx, err.Error())
+				Infof(ctx, err.Error())
+				panic(err)
 			}
 			wg.Done()
 			res.PartNum = partNum
@@ -311,7 +319,7 @@ func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj,
 		return nil, err
 	}
 
-	finalObject, err := redistribute(ctx, concatObj, beginningPad, opts.DstBucket, opts.DstKey, opts.storageClass)
+	finalObject, err := redistribute(ctx, svc, concatObj, beginningPad, opts.DstBucket, opts.DstKey, opts.storageClass)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +331,7 @@ func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj,
 
 // redistribute will try to evenly distribute the object into equal size parts.
 // it will also trim whatever offset passed, helpful to remove the front padding
-func redistribute(ctx context.Context, obj *S3Obj, trimoffset int64, bucket, key string, storageClass types.StorageClass) (*S3Obj, error) {
+func redistribute(ctx context.Context, client *s3.Client, obj *S3Obj, trimoffset int64, bucket, key string, storageClass types.StorageClass) (*S3Obj, error) {
 	finalSize := obj.Size - trimoffset
 	min, max, mid := findMinMaxPartRange(finalSize)
 	var r int64 = 0
@@ -362,14 +370,14 @@ func redistribute(ctx context.Context, obj *S3Obj, trimoffset int64, bucket, key
 	}
 
 	complete := NewS3Obj()
-	client := GetS3Client(ctx)
 	output, err := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket:       aws.String(bucket),
 		Key:          aws.String(key),
 		StorageClass: storageClass,
 	})
 	if err != nil {
-		Fatalf(ctx, err.Error())
+		Infof(ctx, err.Error())
+		return nil, err
 	}
 	uploadId := *output.UploadId
 
@@ -424,7 +432,8 @@ func redistribute(ctx context.Context, obj *S3Obj, trimoffset int64, bucket, key
 		},
 	})
 	if err != nil {
-		Fatalf(ctx, err.Error())
+		Infof(ctx, err.Error())
+		return nil, err
 	}
 	now := time.Now()
 	complete = &S3Obj{
@@ -440,10 +449,9 @@ func redistribute(ctx context.Context, obj *S3Obj, trimoffset int64, bucket, key
 
 }
 
-func processSmallFiles(ctx context.Context, objectList []*S3Obj, dstKey string, opts *S3TarS3Options) (*S3Obj, error) {
+func processSmallFiles(ctx context.Context, client *s3.Client, objectList []*S3Obj, dstKey string, opts *S3TarS3Options) (*S3Obj, error) {
 
 	Debugf(ctx, "processSmallFiles path")
-	client := GetS3Client(ctx)
 
 	indexList, totalSize := createGroups(ctx, objectList)
 	eofPadding := generateLastBlock(totalSize, opts)
@@ -521,7 +529,7 @@ func processSmallFiles(ctx context.Context, objectList []*S3Obj, dstKey string, 
 		}
 	}
 
-	return redistribute(ctx, finalObject, 0, opts.DstBucket, opts.DstKey, opts.storageClass)
+	return redistribute(ctx, client, finalObject, 0, opts.DstBucket, opts.DstKey, opts.storageClass)
 
 }
 

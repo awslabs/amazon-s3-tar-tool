@@ -42,7 +42,8 @@ func (r *RecursiveConcat) CreateFirstBlock(ctx context.Context) {
 	now := time.Now()
 	output, err := putObject(ctx, r.Client, r.Bucket, key, pad)
 	if err != nil {
-		Fatalf(ctx, err.Error())
+		Infof(ctx, err.Error())
+		panic(err)
 	}
 	r.block = S3Obj{
 		Bucket: r.Bucket,
