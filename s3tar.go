@@ -9,7 +9,6 @@ import (
 	"container/list"
 	"context"
 	"fmt"
-	"log"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -116,7 +115,11 @@ func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, op
 			return err
 		}
 		Debugf(ctx, "building toc")
-		manifestObj, _ := buildToc(ctx, objectList)
+		manifestObj, _, err := buildToc(ctx, objectList)
+		if err != nil {
+			fmt.Printf("buildToc: %s", err.Error())
+			return err
+		}
 		objectList = append([]*S3Obj{manifestObj}, objectList...)
 		Debugf(ctx, "prepended toc: %s Size: %d len.Data: %d", *manifestObj.Key, manifestObj.Size, len(manifestObj.Data))
 		concatObj, err = processSmallFiles(ctx, svc, objectList, opts.DstKey, opts)
@@ -167,8 +170,13 @@ func generateLastBlock(s int64, opts *S3TarS3Options) *S3Obj {
 	return eofPadding
 }
 
+type concatresult struct {
+	result *S3Obj
+	err    error
+}
+
 // concatObjAndHeader will only perform pair (obj1 + hdr2) concatenation
-func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) []*S3Obj {
+func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) ([]*S3Obj, error) {
 
 	ctx = context.WithValue(ctx, contextKeyS3Client, svc)
 	concater, err := NewRecursiveConcat(ctx, RecursiveConcatOptions{
@@ -180,15 +188,18 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 		EndpointUrl: opts.EndpointUrl,
 	})
 	if err != nil {
-		log.Fatal(err.Error())
+		return nil, err
 	}
-	manifestObj, _ := buildToc(ctx, objectList)
+	manifestObj, _, err := buildToc(ctx, objectList)
+	if err != nil {
+		return nil, err
+	}
 	firstPart := buildFirstPart(manifestObj.Data)
 	firstPart.Bucket = opts.DstBucket
 	objectList = append([]*S3Obj{firstPart}, objectList...)
 
 	wg := sizedwaitgroup.New(opts.Threads)
-	resultsChan := make(chan *S3Obj)
+	resultsChan := make(chan concatresult)
 	var bytesAccum int64
 	for i, obj := range objectList {
 		var p1 = obj
@@ -210,11 +221,10 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 			res, err := concater.ConcatObjects(ctx, pairs, opts.DstBucket, key)
 			if err != nil {
 				Infof(ctx, err.Error())
-				panic(err)
 			}
-			wg.Done()
 			res.PartNum = partNum
-			resultsChan <- res
+			resultsChan <- concatresult{res, err}
+			wg.Done()
 		}(pairs, key, i+1)
 
 	}
@@ -225,10 +235,13 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 
 	var results []*S3Obj
 	for r := range resultsChan {
-		results = append(results, r)
+		if r.err != nil {
+			return nil, err
+		}
+		results = append(results, r.result)
 	}
 	sort.Sort(byPartNum(results))
-	return results
+	return results, nil
 }
 
 type batchGroup struct {
@@ -301,7 +314,10 @@ func breakUpList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts 
 
 func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) (*S3Obj, error) {
 
-	results := concatObjAndHeader(ctx, svc, objectList, opts)
+	results, err := concatObjAndHeader(ctx, svc, objectList, opts)
+	if err != nil {
+		return nil, err
+	}
 
 	if len(results) > 10000 {
 		Infof(ctx, "objectList is larger than 10,000 files. processing in batches\n")
@@ -458,28 +474,32 @@ func processSmallFiles(ctx context.Context, client *s3.Client, objectList []*S3O
 	objectList = append(objectList, eofPadding)
 	indexList[len(indexList)-1].End = len(objectList) - 1
 
-	m := sync.Mutex{}
-	var groups []*S3Obj
-	swg := sizedwaitgroup.New(opts.Threads)
+	g := new(errgroup.Group)
+	g.SetLimit(opts.Threads)
+	groups := make([]*S3Obj, len(indexList))
+
 	Debugf(ctx, "Created %d parts", len(indexList))
 	for i, p := range indexList {
+		i, p := i, p
+		start := p.Start
+		end := p.End
 		Debugf(ctx, "Part %06d range: %d - %d", i+1, p.Start, p.End)
-		swg.Add()
-		go func(start, end int) {
-			defer swg.Done()
+		g.Go(func() error {
 			newPart, err := _processSmallFiles(ctx, objectList, start, end, opts)
 			if err != nil {
-				panic(err)
+				return err
 			}
-			m.Lock()
 			newPart.PartNum = start
-			groups = append(groups, newPart)
-			m.Unlock()
-		}(p.Start, p.End)
+			groups[i] = newPart
+			return nil
+		})
 	}
 
 	Debugf(ctx, "Waiting for threads")
-	swg.Wait()
+	//swg.Wait()
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
 	sort.Sort(byPartNum(groups))
 
 	// reset partNum counts.
@@ -517,7 +537,8 @@ func processSmallFiles(ctx context.Context, client *s3.Client, objectList []*S3O
 			Debugf(ctx, "Concat(%s,%s)", *pair[0].Key, *pair[1].Key)
 			finalObject, err = concatObjects(ctx, client, trim, pair, opts.DstBucket, opts.DstKey)
 			if err != nil {
-				log.Fatal(err.Error())
+				fmt.Print(err.Error())
+				return NewS3Obj(), err
 			}
 		}
 	} else {

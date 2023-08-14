@@ -17,10 +17,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
-func buildToc(ctx context.Context, objectList []*S3Obj) (*S3Obj, *S3Obj) {
+func buildToc(ctx context.Context, objectList []*S3Obj) (*S3Obj, *S3Obj, error) {
 
 	headers := processHeaders(ctx, objectList, false)
-	toc := _buildToc(ctx, headers, objectList)
+	toc, err := _buildToc(ctx, headers, objectList)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// Build a header with the original data
 	tocObj := NewS3Obj()
@@ -30,17 +33,23 @@ func buildToc(ctx context.Context, objectList []*S3Obj) (*S3Obj, *S3Obj) {
 	tocHeader.Bucket = objectList[0].Bucket
 	tocObj.Bucket = objectList[0].Bucket
 
-	return tocObj, &tocHeader
+	return tocObj, &tocHeader, nil
 }
 
-func _buildToc(ctx context.Context, headers []*S3Obj, objectList []*S3Obj) *bytes.Buffer {
+func _buildToc(ctx context.Context, headers []*S3Obj, objectList []*S3Obj) (*bytes.Buffer, error) {
 
 	var currLocation int64 = 0
-	data := createCSVTOC(currLocation, headers, objectList)
+	data, err := createCSVTOC(currLocation, headers, objectList)
+	if err != nil {
+		return nil, err
+	}
 	estimate := int64(data.Len())
 
 	for {
-		data = createCSVTOC(int64(estimate), headers, objectList)
+		data, err = createCSVTOC(int64(estimate), headers, objectList)
+		if err != nil {
+			return nil, err
+		}
 		l := int64(data.Len())
 		lp := l + findPadding(l)
 		if lp >= estimate {
@@ -50,10 +59,10 @@ func _buildToc(ctx context.Context, headers []*S3Obj, objectList []*S3Obj) *byte
 		}
 	}
 
-	return data
+	return data, nil
 }
 
-func createCSVTOC(offset int64, headers []*S3Obj, objectList []*S3Obj) *bytes.Buffer {
+func createCSVTOC(offset int64, headers []*S3Obj, objectList []*S3Obj) (*bytes.Buffer, error) {
 	headerOffset := paxTarHeaderSize
 	if tarFormat == tar.FormatGNU {
 		headerOffset = gnuTarHeaderSize
@@ -76,11 +85,11 @@ func createCSVTOC(offset int64, headers []*S3Obj, objectList []*S3Obj) *bytes.Bu
 	}
 	cw := csv.NewWriter(&buf)
 	if err := cw.WriteAll(toc); err != nil {
-		log.Fatal(err.Error())
+		return nil, err
 	}
 	cw.Flush()
 
-	return &buf
+	return &buf, nil
 }
 
 func buildFirstPart(csvData []byte) *S3Obj {
