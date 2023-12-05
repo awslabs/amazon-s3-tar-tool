@@ -7,11 +7,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"path/filepath"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
@@ -49,7 +49,7 @@ func (r *RecursiveConcat) CreateFirstBlock(ctx context.Context) {
 		Bucket: r.Bucket,
 		Object: types.Object{
 			Key:          &key,
-			Size:         int64(len(pad)),
+			Size:         aws.Int64(int64(len(pad))),
 			LastModified: &now,
 			ETag:         output.ETag,
 		},
@@ -84,7 +84,7 @@ func (r *RecursiveConcat) uploadPart(object *S3Obj, uploadId string, bucket, key
 	input := &s3.UploadPartInput{
 		Bucket:     &bucket,
 		Key:        &key,
-		PartNumber: partNum,
+		PartNumber: aws.Int32(partNum),
 		UploadId:   &uploadId,
 		Body:       bytes.NewReader(object.Data),
 	}
@@ -105,7 +105,7 @@ func (r *RecursiveConcat) uploadPartCopy(object *S3Obj, uploadId string, bucket,
 	input := s3.UploadPartCopyInput{
 		Bucket:          &bucket,
 		Key:             &key,
-		PartNumber:      partNum,
+		PartNumber:      aws.Int32(partNum),
 		UploadId:        &uploadId,
 		CopySource:      aws.String(object.Bucket + "/" + *object.Key),
 		CopySourceRange: aws.String(copySourceRange),
@@ -147,10 +147,10 @@ func (r *RecursiveConcat) mergePair(ctx context.Context, objectList []*S3Obj, tr
 			// Debugf(ctx,"uploadPart key:%d", len(o.Data))
 			part, err = r.uploadPart(o, uploadId, bucket, key, int32(i+1))
 			accumSize += int64(len(o.Data))
-		} else if o.Size > 0 {
+		} else if *o.Size > 0 {
 			Debugf(ctx, "uploadPartCopy bucket:%s key:%s %d", o.Bucket, *o.Key, len(o.Data))
-			part, err = r.uploadPartCopy(o, uploadId, bucket, key, int32(i+1), trim, o.Size)
-			accumSize += int64(o.Size) - trim
+			part, err = r.uploadPartCopy(o, uploadId, bucket, key, int32(i+1), trim, *o.Size)
+			accumSize += int64(*o.Size) - trim
 		}
 		if err != nil {
 			fmt.Printf("error 1\n")
@@ -159,7 +159,7 @@ func (r *RecursiveConcat) mergePair(ctx context.Context, objectList []*S3Obj, tr
 			fmt.Printf("uploadId: %s, bucket: %s, key: %s, start: %d, end: %d\n", uploadId, bucket, key, trim, o.Size)
 			return complete, err
 		}
-		if o.Size > 0 {
+		if *o.Size > 0 {
 			parts = append(parts, part)
 		}
 	}
@@ -182,7 +182,7 @@ func (r *RecursiveConcat) mergePair(ctx context.Context, objectList []*S3Obj, tr
 		Object: types.Object{
 			Key:          completeOutput.Key,
 			ETag:         completeOutput.ETag,
-			Size:         accumSize,
+			Size:         &accumSize,
 			LastModified: &now,
 		},
 	}
@@ -193,7 +193,7 @@ func (r *RecursiveConcat) mergePair(ctx context.Context, objectList []*S3Obj, tr
 func calculateFinalSize(objectList []*S3Obj) int64 {
 	var accum int64 = 0
 	for _, v := range objectList {
-		accum += v.Size
+		accum += *v.Size
 	}
 	return accum
 }
@@ -209,7 +209,7 @@ func (r *RecursiveConcat) ConcatObjects(ctx context.Context, objectList []*S3Obj
 	}
 
 	trimStart := false
-	if objectList[0].Size < fileSizeMin {
+	if *objectList[0].Size < fileSizeMin {
 		objectList = append([]*S3Obj{&r.block}, objectList...)
 		trimStart = true
 	}

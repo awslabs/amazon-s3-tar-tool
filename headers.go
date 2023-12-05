@@ -27,7 +27,7 @@ func buildHeader(o, prev *S3Obj, addZeros bool) S3Obj {
 	hdr := &tar.Header{
 		Name:       name,
 		Mode:       0600,
-		Size:       o.Size,
+		Size:       *o.Size,
 		ModTime:    *o.LastModified,
 		ChangeTime: *o.LastModified,
 		AccessTime: time.Now(),
@@ -37,8 +37,8 @@ func buildHeader(o, prev *S3Obj, addZeros bool) S3Obj {
 		buff.Write(pad)
 	}
 
-	if prev != nil && prev.Size > 0 {
-		padSize := findPadding(prev.Size)
+	if prev != nil && prev.Size != nil && *prev.Size > 0 {
+		padSize := findPadding(*prev.Size)
 		buff.Write(pad[:padSize])
 	}
 	if err := tw.WriteHeader(hdr); err != nil {
@@ -50,13 +50,13 @@ func buildHeader(o, prev *S3Obj, addZeros bool) S3Obj {
 		// didn't write the whole file. This part is already on Amazon S3
 	}
 	data := buff.Bytes()
-	atomic.AddInt64(&accum, int64(len(data)+int(o.Size)))
+	atomic.AddInt64(&accum, int64(len(data)+int(*o.Size)))
 	ETag := fmt.Sprintf("%x", md5.Sum(data))
 	return S3Obj{
 		Object: types.Object{
 			Key:  aws.String("header"),
 			ETag: &ETag,
-			Size: int64(len(data)),
+			Size: aws.Int64(int64(len(data))),
 		},
 		Data: data,
 	}

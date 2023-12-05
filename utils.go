@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"io"
 	"log"
 	"os"
@@ -20,7 +21,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
@@ -52,6 +52,7 @@ type S3TarS3Options struct {
 	tarFormat          tar.Format
 	storageClass       types.StorageClass
 	extractPrefix      string
+	InMemory           bool
 }
 
 func (o *S3TarS3Options) Copy() S3TarS3Options {
@@ -137,7 +138,7 @@ func WithBucketAndKey(bucket, key string) func(*S3Obj) {
 }
 func WithSize(size int64) func(*S3Obj) {
 	return func(o *S3Obj) {
-		o.Size = size
+		o.Size = &size
 	}
 }
 func WithETag(etag string) func(*S3Obj) {
@@ -169,7 +170,7 @@ type S3Obj struct {
 func (s *S3Obj) AddData(data []byte) {
 	etag := fmt.Sprintf("%x", md5.Sum(data))
 	s.Data = data
-	s.Size = int64(len(data))
+	s.Size = aws.Int64(int64(len(data)))
 	s.ETag = &etag
 }
 
@@ -258,7 +259,7 @@ func ListAllObjects(ctx context.Context, client *s3.Client, Bucket, Prefix strin
 				PartNum: ctr,
 			})
 			ctr += 1
-			accum += estimateObjectSize(o.Size)
+			accum += estimateObjectSize(*o.Size)
 		}
 	}
 
@@ -277,7 +278,7 @@ func BreakUpList(objectList []*S3Obj, limitSize int64) [][]*S3Obj {
 	var currentList []*S3Obj
 	var accum int64 = 0
 	for i := 0; i < len(objectList); i++ {
-		currentObjectSize := estimateObjectSize(objectList[i].Size)
+		currentObjectSize := estimateObjectSize(*objectList[i].Size)
 		if accum+currentObjectSize < limitSize {
 			currentList = append(currentList, objectList[i])
 			accum += currentObjectSize
@@ -298,7 +299,7 @@ func putObject(ctx context.Context, svc *s3.Client, bucket, key string, data []b
 		Bucket:        &bucket,
 		Key:           &key,
 		Body:          bytes.NewReader(data),
-		ContentLength: int64(len(data)),
+		ContentLength: aws.Int64(int64(len(data))),
 	}
 	return svc.PutObject(ctx, input)
 }
@@ -363,7 +364,7 @@ func _deleteObjectList(ctx context.Context, client *s3.Client, opts *S3TarS3Opti
 	params := &s3.DeleteObjectsInput{
 		Bucket: &objectList[0].Bucket,
 		Delete: &types.Delete{
-			Quiet:   true,
+			Quiet:   aws.Bool(true),
 			Objects: objects,
 		},
 	}

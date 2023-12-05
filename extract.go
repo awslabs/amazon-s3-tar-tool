@@ -10,13 +10,13 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"golang.org/x/sync/errgroup"
 	"io"
 	"path/filepath"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
@@ -131,7 +131,7 @@ func extractEmptyRange(ctx context.Context, svc *s3.Client, dstBucket string, ds
 	input := s3.UploadPartInput{
 		Bucket:     &dstBucket,
 		Key:        &dstKey,
-		PartNumber: 1,
+		PartNumber: aws.Int32(1),
 		UploadId:   &uploadId,
 		Body:       new(bytes.Buffer),
 	}
@@ -143,7 +143,8 @@ func extractEmptyRange(ctx context.Context, svc *s3.Client, dstBucket string, ds
 	parts := []types.CompletedPart{
 		types.CompletedPart{
 			ETag:       res.ETag,
-			PartNumber: 1},
+			PartNumber: aws.Int32(1),
+		},
 	}
 	return parts, nil
 }
@@ -152,7 +153,7 @@ func extractCopyRange(ctx context.Context, svc *s3.Client, bucket string, key st
 	input := s3.UploadPartCopyInput{
 		Bucket:          &dstBucket,
 		Key:             &dstKey,
-		PartNumber:      1,
+		PartNumber:      aws.Int32(1),
 		UploadId:        &uploadId,
 		CopySource:      aws.String(bucket + "/" + key),
 		CopySourceRange: aws.String(copySourceRange),
@@ -166,7 +167,8 @@ func extractCopyRange(ctx context.Context, svc *s3.Client, bucket string, key st
 	parts := []types.CompletedPart{
 		types.CompletedPart{
 			ETag:       res.CopyPartResult.ETag,
-			PartNumber: 1},
+			PartNumber: aws.Int32(1),
+		},
 	}
 	return parts, nil
 }

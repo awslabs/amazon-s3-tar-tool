@@ -73,15 +73,15 @@ func createCSVTOC(offset int64, headers []*S3Obj, objectList []*S3Obj) (*bytes.B
 	toc := [][]string{}
 
 	for i := 0; i < len(objectList); i++ {
-		currLocation += headers[i].Size
+		currLocation += *headers[i].Size
 		line := []string{}
 		line = append(line,
 			*objectList[i].Key,
 			fmt.Sprintf("%d", currLocation),
-			fmt.Sprintf("%d", objectList[i].Size),
+			fmt.Sprintf("%d", *objectList[i].Size),
 			*objectList[i].ETag)
 		toc = append(toc, line)
-		currLocation += objectList[i].Size
+		currLocation += *objectList[i].Size
 	}
 	cw := csv.NewWriter(&buf)
 	if err := cw.WriteAll(toc); err != nil {

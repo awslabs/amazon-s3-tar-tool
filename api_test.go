@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -214,7 +215,7 @@ func TestArchiveClient_EndOfFile(t *testing.T) {
 			if err != nil {
 				t.Errorf(err.Error())
 			}
-			end := headOutput.ContentLength
+			end := *headOutput.ContentLength
 			start := end - (512 * 2)
 			r, err := getObjectRange(context.TODO(), client, bucket, key, start, end)
 			if err != nil {
@@ -514,7 +515,7 @@ func putObjectMPU(ctx context.Context, svc *s3.Client, bucket, key string, data 
 		UploadId:   createOutput.UploadId,
 		Bucket:     &bucket,
 		Key:        &key,
-		PartNumber: partNum,
+		PartNumber: aws.Int32(partNum),
 		Body:       bytes.NewReader(data),
 	}
 	uploadPart, err := svc.UploadPart(ctx, uploadPartInput)
