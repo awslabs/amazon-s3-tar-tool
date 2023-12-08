@@ -9,9 +9,11 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"io"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -126,48 +128,127 @@ func buildFirstPart(csvData []byte) *S3Obj {
 	return endPadding
 }
 
+func tryParseHeader(ctx context.Context, svc *s3.Client, opts *S3TarS3Options, start int64) (*tar.Header, int64, error) {
+	var i int64 = 512
+	var windowStart int64 = start
+	var header *tar.Header
+	var offset int64 = 0
+	data := make([]byte, blockSize*10)
+
+	for ; i < (512 * 10); windowStart, i = windowStart+blockSize, i+blockSize {
+		Debugf(ctx, "trying to parse header from %d-%d\n", start, start+i)
+		Debugf(ctx, "downloading from %d-%d\n", windowStart, windowStart+blockSize)
+		r, err := getObjectRange(ctx, svc, opts.SrcBucket, opts.SrcKey, windowStart, windowStart+blockSize-1)
+		if err != nil {
+			panic(err)
+		}
+		defer r.Close()
+
+		all, _ := io.ReadAll(r)
+		copy(data[i-blockSize:i], all)
+
+		if i == blockSize*2 {
+			endBlock := make([]byte, blockSize*2)
+			if bytes.Compare(endBlock, data[0:1024]) == 0 {
+				return nil, offset, io.EOF
+			}
+		}
+
+		nr := bytes.NewReader(data[0:i])
+		tr := tar.NewReader(nr)
+		h, err := tr.Next()
+		if err == nil {
+			header = h
+			offset = start + i
+			break
+		}
+	}
+	return header, offset, nil
+}
+
 // GenerateToc creates a TOC csv of an existing TAR file (not created by s3tar)
 // tar file MUST NOT have compression.
 // tar file must be on the local file system to.
-// TODO: It should be possible to generate a TOC from an existing TAR already by only reading the headers and skipping the data.
-func GenerateToc(tarFile, outputToc string, opts *S3TarS3Options) error {
+func GenerateToc(ctx context.Context, svc *s3.Client, tarFile, outputToc string, opts *S3TarS3Options) error {
 
-	r, err := os.Open(tarFile)
-	if err != nil {
-		panic(err)
-	}
-	defer r.Close()
+	if strings.Contains(tarFile, "s3://") {
+		// remote file on s3
+		fmt.Printf("file is on s3")
 
-	w, err := os.Create(outputToc)
-	if err != nil {
-		panic(err)
-	}
-	defer w.Close()
-
-	cw := csv.NewWriter(w)
-	tr := tar.NewReader(r)
-	for {
-		h, err := tr.Next()
-		if err != nil && err != io.EOF {
-			return err
-		}
-		if err == io.EOF {
-			break
-		}
-
-		offset, err := r.Seek(0, io.SeekCurrent)
+		w, err := os.Create(outputToc)
 		if err != nil {
-			return err
+			log.Fatal(err.Error())
 		}
+		defer w.Close()
+		cw := csv.NewWriter(w)
 
-		offsetStr := fmt.Sprintf("%d", offset)
-		size := fmt.Sprintf("%d", h.Size)
-		record := []string{h.Name, offsetStr, size, ""}
-		if err = cw.Write(record); err != nil {
-			return err
+		var start int64 = 0
+		for {
+
+			header, offset, err := tryParseHeader(ctx, svc, opts, start)
+			if err == io.EOF {
+				Debugf(ctx, "reached EOF")
+				break
+			}
+			if err != nil {
+				// log something
+				break
+			}
+
+			offsetStr := fmt.Sprintf("%d", offset)
+			size := fmt.Sprintf("%d", header.Size)
+			record := []string{header.Name, offsetStr, size, ""}
+			if err = cw.Write(record); err != nil {
+				return err
+			}
+
+			start = offset + header.Size + findPadding(offset+header.Size)
+			Debugf(ctx, "next start: %d\n", start)
 		}
+		cw.Flush()
 
+		return nil
+	} else {
+		// local file
+		fmt.Printf("file is local")
+
+		r, err := os.Open(tarFile)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		defer r.Close()
+
+		w, err := os.Create(outputToc)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		defer w.Close()
+
+		cw := csv.NewWriter(w)
+		tr := tar.NewReader(r)
+		for {
+			h, err := tr.Next()
+			if err != nil && err != io.EOF {
+				return err
+			}
+			if err == io.EOF {
+				break
+			}
+
+			offset, err := r.Seek(0, io.SeekCurrent)
+			if err != nil {
+				return err
+			}
+
+			offsetStr := fmt.Sprintf("%d", offset)
+			size := fmt.Sprintf("%d", h.Size)
+			record := []string{h.Name, offsetStr, size, ""}
+			if err = cw.Write(record); err != nil {
+				return err
+			}
+
+		}
+		cw.Flush()
+		return nil
 	}
-	cw.Flush()
-	return nil
 }

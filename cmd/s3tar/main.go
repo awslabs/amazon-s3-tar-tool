@@ -58,6 +58,7 @@ func run(args []string) error {
 	var storageClass string
 	var sizeLimit int64
 	var maxAttempts int
+	var concatInMemory bool
 
 	cli.VersionFlag = &cli.BoolFlag{
 		Name:    "print-version",
@@ -191,6 +192,12 @@ func run(args []string) error {
 				Usage:       "number of maxAttempts for AWS Go SDK. 0 is unlimited",
 				Destination: &maxAttempts,
 			},
+			&cli.BoolFlag{
+				Name:        "concat-in-memory",
+				Value:       false,
+				Usage:       "create the tar object in ram; to use with small files and concatenate the part",
+				Destination: &concatInMemory,
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
 			logLevel := parseLogLevel(cCtx.Count("verbose"))
@@ -234,6 +241,7 @@ func run(args []string) error {
 					DeleteSource:       false,
 					Region:             region,
 					EndpointUrl:        endpointUrl,
+					ConcatInMemory:     concatInMemory,
 				}
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(archiveFile)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
@@ -330,7 +338,16 @@ func run(args []string) error {
 				}
 			} else if generateToc {
 				// s3tar --generate-toc -f my-previous-archive.tar -C /home/user/my-previous-archive.toc.csv
-				err := s3tar.GenerateToc(archiveFile, destination, &s3tar.S3TarS3Options{})
+				bucket, key := s3tar.ExtractBucketAndPath(archiveFile)
+				s3opts := &s3tar.S3TarS3Options{
+					Threads:      threads,
+					DeleteSource: false,
+					Region:       region,
+					EndpointUrl:  endpointUrl,
+					SrcBucket:    bucket,
+					SrcKey:       key,
+				}
+				err := s3tar.GenerateToc(ctx, svc, archiveFile, destination, s3opts)
 				if err != nil {
 					log.Fatal(err.Error())
 				}

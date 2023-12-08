@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"log"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -90,20 +91,17 @@ func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, op
 			smallFiles = true
 		}
 	}
-	Infof(ctx, "final size %dGB (without tar headers + padding)", totalSize/1024/1024/1024)
+	Infof(ctx, "final size %s (without tar headers + padding)", formatBytes(totalSize))
 
-	if totalSize < fileSizeMin {
-		return fmt.Errorf("total size (%d) of all objects is less than 5MB. Include more objects", totalSize)
-	}
 	if totalSize > fileSizeMax {
 		return fmt.Errorf("total size (%d) of all objects is more than 5TB. Reduce the number of objects", totalSize)
 	}
 
 	concatObj := NewS3Obj()
-	if smallFiles && opts.InMemory {
+	if opts.ConcatInMemory || totalSize < fileSizeMin {
 		Debugf(ctx, "Processing small files in-memory")
 		var err error
-		concatObj, err = buildInMemoryConcat(ctx, svc, objectList, opts)
+		concatObj, err = buildInMemoryConcat(ctx, svc, objectList, totalSize, opts)
 		if err != nil {
 			return err
 		}
@@ -603,10 +601,16 @@ func _processSmallFiles(ctx context.Context, objectList []*S3Obj, start, end int
 // as possible. This is helpful to parallelize the workload even more.
 // findMinimumPartSize will start at 10MB and increment by 5MB until we're
 // within the 10,000 MPU part limit
-func findMinimumPartSize(finalSizeBytes int64) int64 {
+func findMinimumPartSize(finalSizeBytes, startingSize int64) int64 {
 
 	const fiveMB = beginningPad
-	partSize := int64(fiveMB)
+	partSize := startingSize
+	if startingSize < fiveMB {
+		partSize = fiveMB
+	}
+	if startingSize > partSizeMax {
+		log.Fatal("part size maximum cannot exceed 5GiB")
+	}
 	for ; partSize <= partSizeMax; partSize = partSize + fiveMB {
 		if finalSizeBytes/int64(partSize) < maxPartNumLimit {
 			break
@@ -638,7 +642,7 @@ func createGroups(ctx context.Context, objectList []*S3Obj) ([]Index, int64) {
 	last := 0
 
 	estimatedSize := estimateFinalSize(objectList)
-	partSize := findMinimumPartSize(estimatedSize)
+	partSize := findMinimumPartSize(estimatedSize, 0)
 	Infof(ctx, "estimated final size: %d bytes (with headers + padding)\nmultipart part-size: %d bytes\n", estimatedSize, partSize)
 
 	h := buildHeader(objectList[0], nil, false)

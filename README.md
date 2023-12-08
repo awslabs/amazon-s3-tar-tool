@@ -7,7 +7,11 @@
 
 s3tar is utility tool to create a tarball of existing objects in Amazon S3.
 
-s3tar allows customers to group existing Amazon S3 objects into TAR files without having to download the files. This cli tool leverages existing Amazon S3 APIs to create the archives on Amazon S3 that can be later transitioned to any of the cold storage tiers. The files generated follow the tar file format and can be extracted with standard tar tools.
+s3tar allows customers to group existing Amazon S3 objects into TAR files without having to download the files, unless using the `--concat-in-memory` flag (see below). This cli tool leverages existing Amazon S3 APIs to create the archives on Amazon S3 that can be later transitioned to any of the cold storage tiers. The files generated follow the tar file format and can be extracted with standard tar tools.
+
+s3tar operates in two distinct modes, each tailored for specific use cases. The default method is designed for optimal performance with large objects, making it ideal for generating tarballs that predominantly consist of substantial data. In this mode, s3tar executes operations primarily through the Amazon S3 backend, eliminating the need to download the data.
+
+Conversely, the concat-in-memory method is specifically optimized for small objects, facilitating the concatenation of hundreds of thousands or millions of objects. This approach involves downloading the data into the instance and conducting most operations in the system's memory. Each method comes with its unique pricing structures, which are explained in the dedicated pricing section.
 
 Using the Multipart Uploads API, in particular `UploadPartCopy` API, we can copy existing objects into one object. This utility will create the intermediate TAR header files that go between each file and then concatenate all of the objects into a single tarball. 
 
@@ -15,21 +19,22 @@ Using the Multipart Uploads API, in particular `UploadPartCopy` API, we can copy
 
 The tool follows the tar syntax for creation and extraction of tarballs with a few additions to support Amazon S3 operations. 
 
-| flag            | description                                                           | required             |
-|-----------------|-----------------------------------------------------------------------|----------------------|
-| -c              | create                                                                | yes, unless using -x |
-| -x              | extract                                                               | yes, unless using -c |
-| -C              | destination to extract                                                | yes when using -x    |
-| -f              | file that will be generated or extracted: s3://bucket/prefix/file.tar | yes                  |
-| -t              | list files in archive                                                 | no                   |
-| --extended      | to use with -t to extend the output to filename,loc,length,etag       | no                   |
-| -m              | manifest input                                                        | no                   |
-| --region        | aws region where the bucket is                                        | yes                  |
-| -v, -vv, -vvv   | level of verbose                                                      | no                   |    
-| --format        | Tar format PAX or GNU, default is PAX                                 | no                   |
-| --endpointUrl   | specify an Amazon S3 endpoint                                         | no                   |
-| --storage-class | specify an Amazon S3 storage class, default is STANDARD               | no                   |
-| --size-limit    | This will split the tar files into multiple tars                      | no                   |
+| flag               | description                                                                          | required             |
+|--------------------|--------------------------------------------------------------------------------------|----------------------|
+| -c                 | create                                                                               | yes, unless using -x |
+| -x                 | extract                                                                              | yes, unless using -c |
+| -C                 | destination to extract                                                               | yes when using -x    |
+| -f                 | file that will be generated or extracted: s3://bucket/prefix/file.tar                | yes                  |
+| -t                 | list files in archive                                                                | no                   |
+| --extended         | to use with -t to extend the output to filename,loc,length,etag                      | no                   |
+| -m                 | manifest input                                                                       | no                   |
+| --region           | aws region where the bucket is                                                       | yes                  |
+| -v, -vv, -vvv      | level of verbose                                                                     | no                   |    
+| --format           | Tar format PAX or GNU, default is PAX                                                | no                   |
+| --endpointUrl      | specify an Amazon S3 endpoint                                                        | no                   |
+| --storage-class    | specify an Amazon S3 storage class, default is STANDARD                              | no                   |
+| --size-limit       | This will split the tar files into multiple tars                                     | no                   |
+| --concat-in-memory | Enables building the tarball in memory by downloading the data. (more details below) | no                   |
 
 
 The syntax for creating and extracting tarballs remains similar to traditional tar tools:
@@ -92,6 +97,11 @@ my-bucket,prefix/file.0002.exr,50172928,9d972e4a7de1f6791f92f06c1c7bd1ca
 my-bucket,prefix/file.0003.exr,67663872,6f2c195e8ab661e1a32410e5022914b7
 
 ```
+### Large-Objects vs Small-Objects (In Memory)
+The original design of s3tar prioritized the creation of tarballs for large objects. Previously, users were facing challenges by having to meticulously adjust various factors such as instance size, EBS/Instance Store, memory, and network bandwidth to build tarballs on EC2 Instances. Recognizing the need for a more efficient process, s3tar was developed to eliminate the necessity for users to download data, opting instead to leverage Amazon S3 MultiPart Objects.
+
+As users increasingly employed s3tar for creating tarballs of small objects, a new feature has been introduced to facilitate the direct download of data and in-memory tarball construction. This enhancement significantly improves both performance and cost efficiency. To illustrate, building a tarball containing 1 million small objects now takes approximately 6 minutes on a `c7g.4xlarge`, compared to the previous version's 3-hour timeframe. With this modification, s3tar prioritizes GET operations, minimizing most PUT operations, as the majority of PUTs occur in RAM. This strategic shift substantially reduces the overall cost of tarball construction. For instance, the cost of building the same 1 million-object tarball is now approximately $0.45 (us-west-2), as opposed to the non in-memory version's cost of around $10. Users that are creating tarballs of extensive small objects, numbering in the hundreds of thousands or millions, are recommended to leverage the `--concat-in-memory` flag for enhanced efficiency and better pricing. At this time the in-memory version does not include a TOC. Users will have to download the tarball if they wish to extract the contents. 
+
 
 ### TOC & Extract
 Tarballs created with this tool generate a Table of Contents (TOC). This TOC file is at the beginning of the archive and it contains a csv line per file with the `name, byte location, content-length, Etag`. This added functionality allows archives that are created this way to also be extracted without having to download the tar object. 
@@ -201,7 +211,10 @@ NewS3Object = [(5MB Zeroes + tar_header1) + (S3 Existing Object 1) + tar_header2
 We encourage the end-user to write validation workflows to verify the data has been properly tared. If objects being tared are smaller than 5GB, users can use Amazon S3 Batch Operations to generate checksums for the individual objects. After the creation of the tar, users can extract the data into a separate bucket/folder and run the same batch operations job on the new data and verify that the checksums match. To learn more about using checksums for data validation, along with some demos, please watch [Get Started With Checksums in Amazon S3 for Data Integrity Checking](https://www.youtube.com/watch?v=JGsdvDPSirU).
 
 ## Pricing
-It's important to understand that Amazon S3's API has costs associated with it. In particular `PUT`, `COPY`, `POST` are charged at a higher rate than `GET`. The majority of requests performed by this tool are `COPY` and `PUT` operations. Please refer to [the Amazon S3 Pricing page](https://aws.amazon.com/s3/pricing/) for a breakdown of the API costs. You can also use the [AWS Cost Calculator](https://calculator.aws) to help you price your operations.
+It's important to understand that Amazon S3's API has costs associated with it. In particular `PUT`, `COPY`, `POST` are charged at a higher rate than `GET`. The traditional mode of generating tarballs heavily favors Amazon S3 `PUT` operations, while the in-memory mode favors `GET` operations. Because of this, pricing is substantially different between the two. Please refer to [the Amazon S3 Pricing page](https://aws.amazon.com/s3/pricing/) for a breakdown of the API costs. You can also use the [AWS Cost Calculator](https://calculator.aws) to help you price your operations.
+
+### Traditional Amazon S3 backend operations
+The majority of requests performed by in this mode are `COPY` and `PUT` operations. 
 
 During the build process the tool uses Amazon S3 Standard to work on files. If you are aggregating 1,000 objects, then it will require at least 1,000 `COPY` operations and 1,000 `PUT` operations for the tar headers. 
 
@@ -218,6 +231,16 @@ Example: If we want to aggregate 10,000 files
     It would cost a little over $0.1 to create an archive of 10,000 files
 
 The cost example above only prices the cost of performing the operation. It doesn't include how much it would cost to store the final object. 
+
+### In-Memory Tarball Generation
+
+This mode works by downloading (GET) the small files and building the tarball in memory. The majority of operations in this mode are GET operations. The formula to estimate the cost of building a tarball in this mode is as follows:
+
+    (Number of files * GET Pricing) + (number of MultiPart parts * PUT Pricing) 
+
+MultiPart Objects are limited at 10,000 parts. The following example illustrates pricing for a tarball with 1M objects and 10,000 parts in us-west-2:
+
+    (1,000,000 * $0.0000004) + (10,000 * $0.000005) = $0.45
 
 ## Limitations of the tool
 This tool still has the same limitations of Multipart Object sizes:

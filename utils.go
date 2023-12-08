@@ -52,7 +52,7 @@ type S3TarS3Options struct {
 	tarFormat          tar.Format
 	storageClass       types.StorageClass
 	extractPrefix      string
-	InMemory           bool
+	ConcatInMemory     bool
 }
 
 func (o *S3TarS3Options) Copy() S3TarS3Options {
@@ -403,4 +403,30 @@ func randomHex(n int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes), nil
+}
+
+func formatBytes(contentLength int64) string {
+	if contentLength < 0 {
+		return "Invalid size"
+	}
+
+	// Define SI unit symbols
+	units := []string{"Bytes", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
+
+	// Convert to float64 for calculation
+	size := float64(contentLength)
+
+	// Determine the appropriate unit
+	unitIndex := 0
+	for size >= 1024 && unitIndex < len(units)-1 {
+		size /= 1024
+		unitIndex++
+	}
+
+	// Format the result with two decimal places
+	msg := fmt.Sprintf("%.4f %s", size, units[unitIndex])
+	if units[unitIndex] == "Bytes" {
+		msg = fmt.Sprintf("%.0f %s", size, units[unitIndex])
+	}
+	return msg
 }
