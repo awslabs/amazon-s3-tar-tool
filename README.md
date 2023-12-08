@@ -60,7 +60,7 @@ s3tar --region us-west-2 -cvf s3://bucket/prefix/archive.tar s3://bucket/files/
 ```
 
 ```bash
-# this will creaet tarballs that are 1GB in size
+# this will create tarballs that are 1GB in size
 s3tar --region us-west-2 --size-limit 1074000000 -cvf s3://bucket/archive.tar s3://bucket/files/
 # outputs: 
 # s3://bucket/archive.01.tar 
