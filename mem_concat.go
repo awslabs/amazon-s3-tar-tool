@@ -26,7 +26,7 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 		if err != nil {
 			return nil, err
 		}
-		return uploadObject(ctx, client, opts.DstBucket, opts.DstKey, data)
+		return uploadObject(ctx, client, opts.DstBucket, opts.DstKey, data, opts.storageClass)
 	} else {
 
 		sizeLimit := findMinimumPartSize(estimatedSize, largestObjectSize)
@@ -49,6 +49,7 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 		mpu, err := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 			Bucket:            &opts.DstBucket,
 			Key:               &opts.DstKey,
+			StorageClass:      opts.storageClass,
 			ChecksumAlgorithm: types.ChecksumAlgorithmSha256,
 		})
 		if err != nil {
@@ -153,12 +154,13 @@ func findLargestObject(objectList []*S3Obj) int64 {
 	return largestObject
 }
 
-func uploadObject(ctx context.Context, client *s3.Client, bucket, key string, data []byte) (*S3Obj, error) {
+func uploadObject(ctx context.Context, client *s3.Client, bucket, key string, data []byte, storageClass types.StorageClass) (*S3Obj, error) {
 
 	rc, err := client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:            &bucket,
 		Key:               &key,
 		ChecksumAlgorithm: types.ChecksumAlgorithmSha256,
+		StorageClass:      storageClass,
 		Body:              bytes.NewReader(data),
 	})
 	if err != nil {
