@@ -53,6 +53,7 @@ type S3TarS3Options struct {
 	storageClass       types.StorageClass
 	extractPrefix      string
 	ConcatInMemory     bool
+	UrlDecode          bool
 }
 
 func (o *S3TarS3Options) Copy() S3TarS3Options {

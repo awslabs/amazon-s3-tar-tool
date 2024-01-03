@@ -46,7 +46,7 @@ func ServerSideTar(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) er
 	var err error
 	if opts.SrcManifest != "" {
 		Infof(ctx, "using manifest file %s", opts.SrcManifest)
-		objectList, _, err = LoadCSV(ctx, svc, opts.SrcManifest, opts.SkipManifestHeader)
+		objectList, _, err = LoadCSV(ctx, svc, opts.SrcManifest, opts.SkipManifestHeader, opts.UrlDecode)
 	} else if opts.SrcBucket != "" {
 		Infof(ctx, "using source bucket '%s' and prefix '%s'", opts.SrcBucket, opts.SrcPrefix)
 		objectList, _, err = ListAllObjects(ctx, svc, opts.SrcBucket, opts.SrcPrefix)

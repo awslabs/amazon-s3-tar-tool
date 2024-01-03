@@ -9,19 +9,20 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"io"
 	"log"
+	"net/url"
 	"strconv"
 )
 
-func LoadCSV(ctx context.Context, svc *s3.Client, fpath string, skipHeader bool) ([]*S3Obj, int64, error) {
+func LoadCSV(ctx context.Context, svc *s3.Client, fpath string, skipHeader, urlDecode bool) ([]*S3Obj, int64, error) {
 	r, err := loadFile(ctx, svc, fpath)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer r.Close()
-	return parseCSV(r, skipHeader)
+	return parseCSV(r, skipHeader, urlDecode)
 }
 
-func parseCSV(f io.Reader, skipHeader bool) ([]*S3Obj, int64, error) {
+func parseCSV(f io.Reader, skipHeader bool, urlDecode bool) ([]*S3Obj, int64, error) {
 
 	var data []*S3Obj
 	var accum int64
@@ -48,8 +49,16 @@ func parseCSV(f io.Reader, skipHeader bool) ([]*S3Obj, int64, error) {
 			size = 0
 		}
 
+		key := record[1]
+		if urlDecode {
+			key, err = url.QueryUnescape(key)
+			if err != nil {
+				key = record[1]
+			}
+		}
+
 		opts := []func(*S3Obj){
-			WithBucketAndKey(record[0], record[1]),
+			WithBucketAndKey(record[0], key),
 			WithSize(size),
 		}
 

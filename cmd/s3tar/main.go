@@ -59,6 +59,7 @@ func run(args []string) error {
 	var sizeLimit int64
 	var maxAttempts int
 	var concatInMemory bool
+	var urlDecode bool
 
 	cli.VersionFlag = &cli.BoolFlag{
 		Name:    "print-version",
@@ -198,6 +199,12 @@ func run(args []string) error {
 				Usage:       "create the tar object in ram; to use with small files and concatenate the part",
 				Destination: &concatInMemory,
 			},
+			&cli.BoolFlag{
+				Name:        "urldecode",
+				Value:       false,
+				Usage:       "url decode the key value from the manifest",
+				Destination: &urlDecode,
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
 			logLevel := parseLogLevel(cCtx.Count("verbose"))
@@ -242,6 +249,7 @@ func run(args []string) error {
 					Region:             region,
 					EndpointUrl:        endpointUrl,
 					ConcatInMemory:     concatInMemory,
+					UrlDecode:          urlDecode,
 				}
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(archiveFile)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
@@ -257,7 +265,7 @@ func run(args []string) error {
 				var estimatedSize int64
 				var err error
 				if s3opts.SrcManifest != "" {
-					objectList, estimatedSize, err = loadCSV(ctx, svc, s3opts.SrcManifest, s3opts.SkipManifestHeader)
+					objectList, estimatedSize, err = loadCSV(ctx, svc, s3opts.SrcManifest, s3opts.SkipManifestHeader, s3opts.UrlDecode)
 				} else {
 					objectList, estimatedSize, err = listAllObjects(ctx, svc, s3opts.SrcBucket, s3opts.SrcPrefix)
 				}
