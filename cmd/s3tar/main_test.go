@@ -113,7 +113,7 @@ func mockListAllObjects(ctx context.Context, client *s3.Client, Bucket, Prefix s
 	return []*s3tar.S3Obj{}, 0, nil
 }
 
-func mockLoadCSV(ctx context.Context, svc *s3.Client, fpath string, skipHeader bool) ([]*s3tar.S3Obj, int64, error) {
+func mockLoadCSV(ctx context.Context, svc *s3.Client, fpath string, skipHeader, urlDecode bool) ([]*s3tar.S3Obj, int64, error) {
 	return []*s3tar.S3Obj{}, 0, nil
 }
 
@@ -127,7 +127,7 @@ func Test_cli(t *testing.T) {
 		name               string
 		archiveInitializer func(*s3.Client) s3tar.Archiver
 		listObjFun         func(context.Context, *s3.Client, string, string, ...func(types.Object) bool) ([]*s3tar.S3Obj, int64, error)
-		listObjManifest    func(context.Context, *s3.Client, string, bool) ([]*s3tar.S3Obj, int64, error)
+		listObjManifest    func(context.Context, *s3.Client, string, bool, bool) ([]*s3tar.S3Obj, int64, error)
 		args               args
 		wantErr            bool
 	}{
