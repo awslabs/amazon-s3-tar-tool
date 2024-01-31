@@ -29,9 +29,9 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 		return uploadObject(ctx, client, opts.DstBucket, opts.DstKey, data, opts.storageClass)
 	} else {
 
-		sizeLimit := findMinimumPartSize(estimatedSize, largestObjectSize)
+		sizeLimit := findMinimumPartSize(estimatedSize, opts.UserMaxPartSize)
 
-		Infof(ctx, "mpu partsize: %s, estimated ram usage: %s\n", formatBytes(sizeLimit), formatBytes(sizeLimit*int64(threads)*3))
+		Infof(ctx, "mpu partsize: %s, estimated ram usage: %s\nlargestObject: %d\n", formatBytes(sizeLimit), formatBytes(sizeLimit*int64(threads)*3), largestObjectSize)
 
 		// TODO: fix TOC to be pre-appended
 		// tocObj, _, err := buildToc(ctx, objectList)
@@ -45,6 +45,7 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 			return nil, fmt.Errorf("number of parts exceeded the number of mpu parts allowed\n")
 		}
 
+		Infof(ctx, "number of parts: %d\n", len(groups))
 		// create MPU
 		mpu, err := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 			Bucket:            &opts.DstBucket,
@@ -146,11 +147,14 @@ func sumSlice[T int | int32 | int64 | float64](i []T) (o T) {
 
 func findLargestObject(objectList []*S3Obj) int64 {
 	var largestObject int64 = 0
+	var largestObjectKey string
 	for _, o := range objectList {
 		if *o.Size > largestObject {
 			largestObject = *o.Size
+			largestObjectKey = *o.Key
 		}
 	}
+	fmt.Printf("largestObjectKey: %s\n", largestObjectKey)
 	return largestObject
 }
 

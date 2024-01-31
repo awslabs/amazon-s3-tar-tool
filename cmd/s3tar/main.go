@@ -60,6 +60,7 @@ func run(args []string) error {
 	var maxAttempts int
 	var concatInMemory bool
 	var urlDecode bool
+	var userPartMaxSize int64
 
 	cli.VersionFlag = &cli.BoolFlag{
 		Name:    "print-version",
@@ -205,6 +206,12 @@ func run(args []string) error {
 				Usage:       "url decode the key value from the manifest",
 				Destination: &urlDecode,
 			},
+			&cli.Int64Flag{
+				Name:        "max-part-size",
+				Value:       20,
+				Usage:       "constrain the max part size of MPU, in MB",
+				Destination: &userPartMaxSize,
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
 			logLevel := parseLogLevel(cCtx.Count("verbose"))
@@ -241,6 +248,11 @@ func run(args []string) error {
 			if create {
 				src := cCtx.Args().First() // TODO implement dir list
 
+				if userPartMaxSize < 5 || userPartMaxSize > 5000 {
+					exitError(6, "max-part-size should be >= 5 and < 5000")
+				}
+				userPartMaxSize = userPartMaxSize * 1024 * 1024
+
 				s3opts := &s3tar.S3TarS3Options{
 					SrcManifest:        manifestPath,
 					SkipManifestHeader: skipManifestHeader,
@@ -250,6 +262,7 @@ func run(args []string) error {
 					EndpointUrl:        endpointUrl,
 					ConcatInMemory:     concatInMemory,
 					UrlDecode:          urlDecode,
+					UserMaxPartSize:    userPartMaxSize,
 				}
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(archiveFile)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)

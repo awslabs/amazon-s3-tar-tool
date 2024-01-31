@@ -601,21 +601,29 @@ func _processSmallFiles(ctx context.Context, objectList []*S3Obj, start, end int
 // as possible. This is helpful to parallelize the workload even more.
 // findMinimumPartSize will start at 10MB and increment by 5MB until we're
 // within the 10,000 MPU part limit
-func findMinimumPartSize(finalSizeBytes, startingSize int64) int64 {
+func findMinimumPartSize(finalSizeBytes, userMaxSize int64) int64 {
+
+	if userMaxSize == 0 {
+		userMaxSize = partSizeMax
+	}
 
 	const fiveMB = beginningPad
-	partSize := startingSize
-	if startingSize < fiveMB {
-		partSize = fiveMB
-	}
-	if startingSize > partSizeMax {
-		log.Fatal("part size maximum cannot exceed 5GiB")
-	}
+	partSize := int64(fiveMB)
+
 	for ; partSize <= partSizeMax; partSize = partSize + fiveMB {
 		if finalSizeBytes/int64(partSize) < maxPartNumLimit {
 			break
 		}
 	}
+
+	if partSize > userMaxSize {
+		partSize = userMaxSize
+	}
+
+	if partSize > partSizeMax {
+		log.Fatal("part size maximum cannot exceed 5GiB")
+	}
+
 	return partSize
 }
 

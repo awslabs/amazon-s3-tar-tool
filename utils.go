@@ -54,6 +54,7 @@ type S3TarS3Options struct {
 	extractPrefix      string
 	ConcatInMemory     bool
 	UrlDecode          bool
+	UserMaxPartSize    int64
 }
 
 func (o *S3TarS3Options) Copy() S3TarS3Options {
