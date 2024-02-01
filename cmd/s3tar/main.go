@@ -208,7 +208,7 @@ func run(args []string) error {
 			},
 			&cli.Int64Flag{
 				Name:        "max-part-size",
-				Value:       20,
+				Value:       0,
 				Usage:       "constrain the max part size of MPU, in MB",
 				Destination: &userPartMaxSize,
 			},
@@ -248,10 +248,9 @@ func run(args []string) error {
 			if create {
 				src := cCtx.Args().First() // TODO implement dir list
 
-				if userPartMaxSize < 5 || userPartMaxSize > 5000 {
+				if userPartMaxSize > 0 && (userPartMaxSize < 5 || userPartMaxSize > 5000) {
 					exitError(6, "max-part-size should be >= 5 and < 5000")
 				}
-				userPartMaxSize = userPartMaxSize * 1024 * 1024
 
 				s3opts := &s3tar.S3TarS3Options{
 					SrcManifest:        manifestPath,

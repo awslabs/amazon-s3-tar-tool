@@ -605,6 +605,8 @@ func findMinimumPartSize(finalSizeBytes, userMaxSize int64) int64 {
 
 	if userMaxSize == 0 {
 		userMaxSize = partSizeMax
+	} else {
+		userMaxSize = userMaxSize * 1024 * 1024
 	}
 
 	const fiveMB = beginningPad
