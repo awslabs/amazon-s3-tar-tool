@@ -31,7 +31,7 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 
 		sizeLimit := findMinimumPartSize(estimatedSize, opts.UserMaxPartSize)
 
-		Infof(ctx, "mpu partsize: %s, estimated ram usage: %s\nlargestObject: %d\n", formatBytes(sizeLimit), formatBytes(sizeLimit*int64(threads)*3), largestObjectSize)
+		Infof(ctx, "mpu partsize: %s, largestObject: %d\n", formatBytes(sizeLimit), largestObjectSize)
 
 		// TODO: fix TOC to be pre-appended
 		// tocObj, _, err := buildToc(ctx, objectList)
@@ -42,7 +42,7 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 
 		groups := splitSliceBySizeLimit(sizeLimit, objectList)
 		if len(groups) > maxPartNumLimit {
-			return nil, fmt.Errorf("number of parts exceeded the number of mpu parts allowed\n")
+			return nil, fmt.Errorf("number of parts (%d) exceeded the number of mpu parts allowed (10k)\n", len(groups))
 		}
 
 		Infof(ctx, "number of parts: %d\n", len(groups))

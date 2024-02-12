@@ -599,15 +599,9 @@ func _processSmallFiles(ctx context.Context, objectList []*S3Obj, start, end int
 
 // findMinimumPartSize is for the case when we want to optimize as many parts
 // as possible. This is helpful to parallelize the workload even more.
-// findMinimumPartSize will start at 10MB and increment by 5MB until we're
+// findMinimumPartSize will start at 5MB and increment by 5MB until we're
 // within the 10,000 MPU part limit
 func findMinimumPartSize(finalSizeBytes, userMaxSize int64) int64 {
-
-	if userMaxSize == 0 {
-		userMaxSize = partSizeMax
-	} else {
-		userMaxSize = userMaxSize * 1024 * 1024
-	}
 
 	const fiveMB = beginningPad
 	partSize := int64(fiveMB)
@@ -616,10 +610,6 @@ func findMinimumPartSize(finalSizeBytes, userMaxSize int64) int64 {
 		if finalSizeBytes/int64(partSize) < maxPartNumLimit {
 			break
 		}
-	}
-
-	if partSize > userMaxSize {
-		partSize = userMaxSize
 	}
 
 	if partSize > partSizeMax {
