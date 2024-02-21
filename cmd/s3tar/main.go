@@ -61,6 +61,7 @@ func run(args []string) error {
 	var concatInMemory bool
 	var urlDecode bool
 	var userPartMaxSize int64
+	var awsProfile string
 
 	cli.VersionFlag = &cli.BoolFlag{
 		Name:    "print-version",
@@ -212,6 +213,12 @@ func run(args []string) error {
 				Usage:       "constrain the max part size of MPU, in MB",
 				Destination: &userPartMaxSize,
 			},
+			&cli.StringFlag{
+				Name:        "profile",
+				Value:       "",
+				Usage:       "",
+				Destination: &awsProfile,
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
 			logLevel := parseLogLevel(cCtx.Count("verbose"))
@@ -243,7 +250,15 @@ func run(args []string) error {
 				return retry.AddWithMaxAttempts(retry.NewStandard(), maxAttempts)
 			})
 
-			svc := s3Client(ctx, loadOption, retryOption)
+			optFns := []func(*config.LoadOptions) error{
+				loadOption,
+				retryOption,
+			}
+			if awsProfile != "" {
+				optFns = append(optFns, config.WithSharedConfigProfile(awsProfile))
+			}
+
+			svc := s3Client(ctx, optFns...)
 
 			if create {
 				src := cCtx.Args().First() // TODO implement dir list
