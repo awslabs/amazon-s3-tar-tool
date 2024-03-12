@@ -516,7 +516,7 @@ func putObjectMPU(ctx context.Context, svc *s3.Client, bucket, key string, data 
 		Bucket:     &bucket,
 		Key:        &key,
 		PartNumber: aws.Int32(partNum),
-		Body:       bytes.NewReader(data),
+		Body:       io.ReadSeeker(bytes.NewReader(data)),
 	}
 	uploadPart, err := svc.UploadPart(ctx, uploadPartInput)
 	if err != nil {

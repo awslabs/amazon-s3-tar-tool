@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"io"
 	"log"
 	"path/filepath"
 	"sort"
@@ -606,6 +607,10 @@ func findMinimumPartSize(finalSizeBytes, userMaxSize int64) int64 {
 	const fiveMB = beginningPad
 	partSize := int64(fiveMB)
 
+	if userMaxSize > 0 {
+		partSize = userMaxSize * 1024 * 1024
+	}
+
 	for ; partSize <= partSizeMax; partSize = partSize + fiveMB {
 		if finalSizeBytes/int64(partSize) < maxPartNumLimit {
 			break
@@ -703,7 +708,7 @@ func concatObjects(ctx context.Context, client *s3.Client, trimFirstBytes int, o
 				Key:        &key,
 				PartNumber: &partNum,
 				UploadId:   &uploadId,
-				Body:       bytes.NewReader(object.Data),
+				Body:       io.ReadSeeker(bytes.NewReader(object.Data)),
 			}
 			swg.Add()
 			go func(input *s3.UploadPartInput) {

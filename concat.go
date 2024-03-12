@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"io"
 	"path/filepath"
 	"time"
 
@@ -86,7 +87,7 @@ func (r *RecursiveConcat) uploadPart(object *S3Obj, uploadId string, bucket, key
 		Key:        &key,
 		PartNumber: aws.Int32(partNum),
 		UploadId:   &uploadId,
-		Body:       bytes.NewReader(object.Data),
+		Body:       io.ReadSeeker(bytes.NewReader(object.Data)),
 	}
 
 	res, err := r.Client.UploadPart(context.TODO(), input)

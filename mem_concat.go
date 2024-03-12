@@ -187,12 +187,14 @@ func uploadObject(ctx context.Context, client *s3.Client, bucket, key string, da
 }
 func uploadPart(ctx context.Context, client *s3.Client, uploadId, bucket, key string, data []byte, partNum *int32) (*s3.UploadPartOutput, error) {
 
+	body := io.ReadSeeker(bytes.NewReader(data))
+
 	rc, err := client.UploadPart(ctx, &s3.UploadPartInput{
 		UploadId:          &uploadId,
 		Bucket:            &bucket,
 		Key:               &key,
 		PartNumber:        partNum,
-		Body:              bytes.NewReader(data),
+		Body:              body,
 		ChecksumAlgorithm: types.ChecksumAlgorithmSha256,
 	})
 
