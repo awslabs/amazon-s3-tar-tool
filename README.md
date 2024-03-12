@@ -13,28 +13,33 @@ s3tar operates in two distinct modes, each tailored for specific use cases. The 
 
 Conversely, the concat-in-memory method is specifically optimized for small objects, facilitating the concatenation of hundreds of thousands or millions of objects. This approach involves downloading the data into the instance and conducting most operations in the system's memory. Each method comes with its unique pricing structures, which are explained in the dedicated pricing section.
 
-Using the Multipart Uploads API, in particular `UploadPartCopy` API, we can copy existing objects into one object. This utility will create the intermediate TAR header files that go between each file and then concatenate all of the objects into a single tarball. 
+A recent addition to s3tar introduces a new feature: the ability to extract existing __uncompressed__ tarballs not originally created with s3tar. This process involves two steps. First, generate a table of contents (TOC) for the existing tarball, and second, extract the tarball using the generated TOC.
+To create the TOC, a minimal download of around 1,500 bytes per object in the tarball is required. This download is specifically for parsing the header of each individual file, streamlining the extraction process.
 
 ## Usage
 
 The tool follows the tar syntax for creation and extraction of tarballs with a few additions to support Amazon S3 operations. 
 
-| flag               | description                                                                          | required             |
-|--------------------|--------------------------------------------------------------------------------------|----------------------|
-| -c                 | create                                                                               | yes, unless using -x |
-| -x                 | extract                                                                              | yes, unless using -c |
-| -C                 | destination to extract                                                               | yes when using -x    |
-| -f                 | file that will be generated or extracted: s3://bucket/prefix/file.tar                | yes                  |
-| -t                 | list files in archive                                                                | no                   |
-| --extended         | to use with -t to extend the output to filename,loc,length,etag                      | no                   |
-| -m                 | manifest input                                                                       | no                   |
-| --region           | aws region where the bucket is                                                       | yes                  |
-| -v, -vv, -vvv      | level of verbose                                                                     | no                   |    
-| --format           | Tar format PAX or GNU, default is PAX                                                | no                   |
-| --endpointUrl      | specify an Amazon S3 endpoint                                                        | no                   |
-| --storage-class    | specify an Amazon S3 storage class, default is STANDARD                              | no                   |
-| --size-limit       | This will split the tar files into multiple tars                                     | no                   |
-| --concat-in-memory | Enables building the tarball in memory by downloading the data. (more details below) | no                   |
+| flag               | description                                                                                                      | required             |
+|--------------------|------------------------------------------------------------------------------------------------------------------|----------------------|
+| -c                 | create                                                                                                           | yes, unless using -x |
+| -x                 | extract                                                                                                          | yes, unless using -c |
+| -C                 | destination to extract                                                                                           | yes when using -x    |
+| -f                 | file that will be generated or extracted: s3://bucket/prefix/file.tar                                            | yes                  |
+| -t                 | list files in archive                                                                                            | no                   |
+| --extended         | to use with -t to extend the output to filename,loc,length,etag                                                  | no                   |
+| -m                 | manifest input                                                                                                   | no                   |
+| --region           | aws region where the bucket is                                                                                   | yes                  |
+| -v, -vv, -vvv      | level of verbose                                                                                                 | no                   |    
+| --format           | Tar format PAX or GNU, default is PAX                                                                            | no                   |
+| --endpointUrl      | specify an Amazon S3 endpoint                                                                                    | no                   |
+| --storage-class    | specify an Amazon S3 storage class, default is STANDARD                                                          | no                   |
+| --size-limit       | This will split the tar files into multiple tars                                                                 | no                   |
+| --concat-in-memory | Enables building the tarball in memory by downloading the data. (more details below)                             | no                   |
+| --goroutines       | How many goroutines to process individual objects (default 100). Useful to reduce (or increase) memory footprint | no                   |
+| --profile          | Use a profile credentials from awscli profiles                                                                   | no                   |
+| --generate-toc     | Scans a tarball that doesn't contain a TOC                                                                       | no                   |
+| --external-toc     | pass an external toc generated with --generate-toc                                                               | no                   |
 
 
 The syntax for creating and extracting tarballs remains similar to traditional tar tools:
@@ -119,6 +124,10 @@ s3tar --region us-west-2 -xvf s3://bucket/prefix/archive.tar -C s3://bucket/dest
 # or a dir
 s3tar --region us-west-2 -xvf s3://bucket/prefix/archive.tar -C s3://bucket/destination/ folder/ 
 ```
+
+### Extracting existing uncompressed tarballs
+
+To extract an existing __uncompressed__ tarball not created with s3tar we need to generate a TOC. 
 
 ### List
 If you want to list the files in a tar
