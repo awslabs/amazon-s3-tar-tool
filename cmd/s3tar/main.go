@@ -222,6 +222,8 @@ func run(args []string) error {
 		},
 		Action: func(cCtx *cli.Context) error {
 			logLevel := parseLogLevel(cCtx.Count("verbose"))
+			fmt.Printf("log-level: %d\n", logLevel)
+			fmt.Printf("goroutines: %d\n", threads)
 			if region == "" && !generateToc {
 				exitError(1, "region is missing\n")
 			}
@@ -416,7 +418,7 @@ func s3Client(ctx context.Context, opts ...func(*config.LoadOptions) error) *s3.
 }
 
 func parseLogLevel(count int) int {
-	verboseCount := count - 1
+	verboseCount := count
 	if verboseCount < 0 {
 		verboseCount = 0
 	}
