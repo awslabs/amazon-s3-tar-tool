@@ -20,26 +20,28 @@ To create the TOC, a minimal download of around 1,500 bytes per object in the ta
 
 The tool follows the tar syntax for creation and extraction of tarballs with a few additions to support Amazon S3 operations. 
 
-| flag               | description                                                                                                      | required             |
-|--------------------|------------------------------------------------------------------------------------------------------------------|----------------------|
-| -c                 | create                                                                                                           | yes, unless using -x |
-| -x                 | extract                                                                                                          | yes, unless using -c |
-| -C                 | destination to extract                                                                                           | yes when using -x    |
-| -f                 | file that will be generated or extracted: s3://bucket/prefix/file.tar                                            | yes                  |
-| -t                 | list files in archive                                                                                            | no                   |
-| --extended         | to use with -t to extend the output to filename,loc,length,etag                                                  | no                   |
-| -m                 | manifest input                                                                                                   | no                   |
-| --region           | aws region where the bucket is                                                                                   | yes                  |
-| -v, -vv, -vvv      | level of verbose                                                                                                 | no                   |    
-| --format           | Tar format PAX or GNU, default is PAX                                                                            | no                   |
-| --endpointUrl      | specify an Amazon S3 endpoint                                                                                    | no                   |
-| --storage-class    | specify an Amazon S3 storage class, default is STANDARD                                                          | no                   |
-| --size-limit       | This will split the tar files into multiple tars                                                                 | no                   |
-| --concat-in-memory | Enables building the tarball in memory by downloading the data. (more details below)                             | no                   |
-| --goroutines       | How many goroutines to process individual objects (default 100). Useful to reduce (or increase) memory footprint | no                   |
-| --profile          | Use a profile credentials from awscli profiles                                                                   | no                   |
-| --generate-toc     | Scans a tarball that doesn't contain a TOC                                                                       | no                   |
-| --external-toc     | pass an external toc generated with --generate-toc                                                               | no                   |
+| flag               | description                                                                                                                                                               | required             |
+|--------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------|
+| -c                 | create                                                                                                                                                                    | yes, unless using -x |
+| -x                 | extract                                                                                                                                                                   | yes, unless using -c |
+| -C                 | destination to extract                                                                                                                                                    | yes when using -x    |
+| -f                 | file that will be generated or extracted: s3://bucket/prefix/file.tar                                                                                                     | yes                  |
+| -t                 | list files in archive                                                                                                                                                     | no                   |
+| --extended         | to use with -t to extend the output to filename,loc,length,etag                                                                                                           | no                   |
+| -m                 | manifest input                                                                                                                                                            | no                   |
+| --region           | aws region where the bucket is                                                                                                                                            | yes                  |
+| -v, -vv, -vvv      | level of verbose                                                                                                                                                          | no                   |    
+| --format           | Tar format PAX or GNU, default is PAX                                                                                                                                     | no                   |
+| --endpointUrl      | specify an Amazon S3 endpoint                                                                                                                                             | no                   |
+| --storage-class    | specify an Amazon S3 storage class, default is STANDARD, recommended to use Tags and lifecycle policies to move objects so operations are more cost effective on STANDARD | no                   |
+| --size-limit       | This will split the tar files into multiple tars                                                                                                                          | no                   |
+| --concat-in-memory | Enables building the tarball in memory by downloading the data. (more details below)                                                                                      | no                   |
+| --goroutines       | How many goroutines to process individual objects (default 100). Useful to reduce (or increase) memory footprint                                                          | no                   |
+| --profile          | Use a profile credentials from awscli profiles                                                                                                                            | no                   |
+| --generate-toc     | Scans a tarball that doesn't contain a TOC                                                                                                                                | no                   |
+| --external-toc     | pass an external toc generated with --generate-toc                                                                                                                        | no                   |
+| --tagging          | pass tags to the final object created. This is helpful for lifecycle policies                                                                                             | no                   |
+
 
 
 The syntax for creating and extracting tarballs remains similar to traditional tar tools:
@@ -127,7 +129,12 @@ s3tar --region us-west-2 -xvf s3://bucket/prefix/archive.tar -C s3://bucket/dest
 
 ### Extracting existing uncompressed tarballs
 
-To extract an existing __uncompressed__ tarball not created with s3tar we need to generate a TOC. 
+To extract an existing __uncompressed__ tarball not created with s3tar we need to generate a TOC and then extract it with the output file
+```bash
+s3tar --region us-west-2 --generate-toc -f s3://bucket/existing.tar -C existing.toc.csv
+
+s3tar --region us-west-2 --external-toc existing.toc.csv -xvf s3://bucket/existing.tar -C s3://bucket/output/
+```
 
 ### List
 If you want to list the files in a tar
