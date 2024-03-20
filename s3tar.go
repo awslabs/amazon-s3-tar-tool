@@ -341,7 +341,7 @@ func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj,
 		return nil, err
 	}
 
-	finalObject, err := redistribute(ctx, svc, concatObj, beginningPad, opts.DstBucket, opts.DstKey, opts.storageClass)
+	finalObject, err := redistribute(ctx, svc, concatObj, beginningPad, opts.DstBucket, opts.DstKey, opts.storageClass, opts.ObjectTags)
 	if err != nil {
 		return nil, err
 	}
@@ -353,7 +353,7 @@ func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj,
 
 // redistribute will try to evenly distribute the object into equal size parts.
 // it will also trim whatever offset passed, helpful to remove the front padding
-func redistribute(ctx context.Context, client *s3.Client, obj *S3Obj, trimoffset int64, bucket, key string, storageClass types.StorageClass) (*S3Obj, error) {
+func redistribute(ctx context.Context, client *s3.Client, obj *S3Obj, trimoffset int64, bucket, key string, storageClass types.StorageClass, tagSet types.Tagging) (*S3Obj, error) {
 	finalSize := *obj.Size - trimoffset
 	min, max, mid := findMinMaxPartRange(finalSize)
 	var r int64 = 0
@@ -392,10 +392,12 @@ func redistribute(ctx context.Context, client *s3.Client, obj *S3Obj, trimoffset
 	}
 
 	complete := NewS3Obj()
+	tags := TagsToUrlEncodedString(tagSet)
 	output, err := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket:       aws.String(bucket),
 		Key:          aws.String(key),
 		StorageClass: storageClass,
+		Tagging:      &tags,
 	})
 	if err != nil {
 		Infof(ctx, err.Error())
@@ -556,7 +558,7 @@ func processSmallFiles(ctx context.Context, client *s3.Client, objectList []*S3O
 		}
 	}
 
-	return redistribute(ctx, client, finalObject, 0, opts.DstBucket, opts.DstKey, opts.storageClass)
+	return redistribute(ctx, client, finalObject, 0, opts.DstBucket, opts.DstKey, opts.storageClass, opts.ObjectTags)
 
 }
 

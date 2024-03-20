@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -55,6 +56,17 @@ type S3TarS3Options struct {
 	ConcatInMemory     bool
 	UrlDecode          bool
 	UserMaxPartSize    int64
+	ObjectTags         types.Tagging
+}
+
+func TagsToUrlEncodedString(tagging types.Tagging) string {
+
+	vals := url.Values{}
+	for _, x := range tagging.TagSet {
+		vals.Add(*x.Key, *x.Value)
+	}
+	return vals.Encode()
+
 }
 
 func (o *S3TarS3Options) Copy() S3TarS3Options {

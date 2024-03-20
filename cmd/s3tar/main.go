@@ -5,12 +5,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	s3tar "github.com/awslabs/amazon-s3-tar-tool"
 	"github.com/urfave/cli/v2"
 	"log"
@@ -62,6 +64,10 @@ func run(args []string) error {
 	var urlDecode bool
 	var userPartMaxSize int64
 	var awsProfile string
+	var tagSetInput string
+
+	var tagSet types.Tagging
+	var err error
 
 	cli.VersionFlag = &cli.BoolFlag{
 		Name:    "print-version",
@@ -219,6 +225,11 @@ func run(args []string) error {
 				Usage:       "",
 				Destination: &awsProfile,
 			},
+			&cli.StringFlag{
+				Name:        "tagging",
+				Usage:       "pass a tag value following awscli syntax: --tagging='{\"TagSet\": [{ \"Key\": \"transition-to\", \"Value\": \"GDA\" }]}'",
+				Destination: &tagSetInput,
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
 			logLevel := parseLogLevel(cCtx.Count("verbose"))
@@ -233,6 +244,14 @@ func run(args []string) error {
 			if sizeLimit > maxSize {
 				sizeLimit = maxSize
 			}
+
+			if tagSetInput != "" {
+				tagSet, err = parseTagValues(tagSetInput)
+				if err != nil {
+					exitError(10, "invalid format for tags")
+				}
+			}
+
 			var loadOption config.LoadOptionsFunc
 			if endpointUrl != "" {
 				loadOption = config.WithEndpointResolverWithOptions(
@@ -279,6 +298,7 @@ func run(args []string) error {
 					ConcatInMemory:     concatInMemory,
 					UrlDecode:          urlDecode,
 					UserMaxPartSize:    userPartMaxSize,
+					ObjectTags:         tagSet,
 				}
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(archiveFile)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
@@ -415,6 +435,15 @@ func s3Client(ctx context.Context, opts ...func(*config.LoadOptions) error) *s3.
 	}
 	return s3.NewFromConfig(cfg, ua)
 
+}
+
+func parseTagValues(tagSet string) (types.Tagging, error) {
+	tags := types.Tagging{}
+	err := json.Unmarshal([]byte(tagSet), &tags)
+	if err != nil {
+		return tags, err
+	}
+	return tags, nil
 }
 
 func parseLogLevel(count int) int {
