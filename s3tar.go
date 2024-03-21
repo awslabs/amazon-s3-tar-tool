@@ -76,7 +76,9 @@ func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, op
 			fmt.Printf("%v\n", r)
 			fmt.Printf("recovered from a panic. Trying to clean up.\n")
 		}
-		cleanUp(ctx, svc, opts)
+		if !opts.ConcatInMemory {
+			cleanUp(ctx, svc, opts)
+		}
 		elapsed := time.Since(start)
 		Infof(ctx, "Time elapsed: %s", elapsed)
 	}()

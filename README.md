@@ -199,6 +199,31 @@ A make file is included that helps building the application for `darwin-arm64` `
 
 If you get the error `dial tcp: lookup proxy.golang.org i/o timeout` it means your network is restricting access to that domain. You can bypass the proxy by setting the following variable: `export GOPROXY=direct` 
 
+## IAM Permissions 
+
+```json 
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor1",
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:PutObjectTagging", // only necessary used when using the --tagging flag
+                "s3:DeleteObject" // used to delete intermediate files created (used during non --concat-in-memory mode) 
+            ],
+            "Resource": [
+                "arn:aws:s3:::bucket",
+                "arn:aws:s3:::bucket/*"
+            ]
+        }
+    ]
+}
+```
+
 ## How the tool works
 
 This tools utilizes Amazon S3 Multipart Upload (MPU). MPU allows you to upload a single object as a set of parts. Each part is a contiguous portion of the object's data. You can upload these object parts independently and in any order. After all parts of your object are uploaded, Amazon S3 assembles these parts and creates the object. 
