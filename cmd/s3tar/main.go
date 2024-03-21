@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -47,6 +48,7 @@ func run(args []string) error {
 	var extract bool
 	var list bool
 	var generateToc bool
+	var generateManifest bool
 	var region string
 	var endpointUrl string
 	var archiveFile string // file flag
@@ -113,6 +115,12 @@ func run(args []string) error {
 				Value:       false,
 				Usage:       "command to generate a toc.csv for an existing tarball",
 				Destination: &generateToc,
+			},
+			&cli.BoolFlag{
+				Name:        "generate-manifest",
+				Value:       false,
+				Usage:       "lists objects in an S3 Path and generates a for creating an archive later",
+				Destination: &generateManifest,
 			},
 			&cli.BoolFlag{
 				Name:    "verbose",
@@ -233,8 +241,6 @@ func run(args []string) error {
 		},
 		Action: func(cCtx *cli.Context) error {
 			logLevel := parseLogLevel(cCtx.Count("verbose"))
-			fmt.Printf("log-level: %d\n", logLevel)
-			fmt.Printf("goroutines: %d\n", threads)
 			if region == "" && !generateToc {
 				exitError(1, "region is missing\n")
 			}
@@ -355,7 +361,7 @@ func run(args []string) error {
 				if destination == "" {
 					log.Fatalf("destination path missing")
 				}
-				if destination[len(destination)-1] != '/' {
+				if destination[len(destination)-1] != '/' && !generateManifest {
 					destination = destination + "/"
 					fmt.Printf("appending '/' to destination path\n")
 				}
@@ -407,6 +413,30 @@ func run(args []string) error {
 				err := s3tar.GenerateToc(ctx, svc, archiveFile, destination, s3opts)
 				if err != nil {
 					log.Fatal(err.Error())
+				}
+			} else if generateManifest {
+				bucket, prefix := s3tar.ExtractBucketAndPath(archiveFile)
+
+				objectList, _, err := s3tar.ListAllObjects(ctx, svc, bucket, prefix)
+				if err != nil {
+					log.Fatal(err.Error())
+				}
+
+				f, err := os.Create(destination)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				w := csv.NewWriter(f)
+				defer w.Flush()
+
+				for _, obj := range objectList {
+					size := strconv.FormatInt(*obj.Size, 10)
+					etag := *obj.ETag
+					err = w.Write([]string{obj.Bucket, *obj.Key, size, etag[1 : len(etag)-1]})
+					if err != nil {
+						return err
+					}
 				}
 			} else {
 				exitError(3, "operation not implemented, provide create or extract flag\n")
