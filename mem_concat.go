@@ -53,7 +53,7 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 		mpu, err := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 			Bucket:            &opts.DstBucket,
 			Key:               &opts.DstKey,
-			StorageClass:      types.StorageClassStandard,
+			StorageClass:      opts.storageClass,
 			ChecksumAlgorithm: types.ChecksumAlgorithmSha256,
 			Tagging:           &tags,
 		})
