@@ -332,7 +332,7 @@ func getObjectRange(ctx context.Context, svc *s3.Client, bucket, key string, sta
 	}
 	output, err := svc.GetObject(ctx, params)
 	if err != nil {
-		return output.Body, err
+		return nil, err
 	}
 	return output.Body, nil
 }

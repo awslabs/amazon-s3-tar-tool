@@ -56,6 +56,7 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 			StorageClass:      opts.storageClass,
 			ChecksumAlgorithm: types.ChecksumAlgorithmSha256,
 			Tagging:           &tags,
+			ACL:               types.ObjectCannedACLBucketOwnerFullControl,
 		})
 		if err != nil {
 			Errorf(ctx, "unable to create multipart")

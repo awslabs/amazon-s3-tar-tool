@@ -133,6 +133,7 @@ func (r *RecursiveConcat) mergePair(ctx context.Context, objectList []*S3Obj, tr
 	output, err := r.Client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
+		ACL:    types.ObjectCannedACLBucketOwnerFullControl,
 	})
 	if err != nil {
 		return complete, err

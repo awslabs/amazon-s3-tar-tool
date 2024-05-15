@@ -91,6 +91,7 @@ func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstBucket, d
 	output, err := svc.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket: aws.String(dstBucket),
 		Key:    aws.String(dstKey),
+		ACL:    types.ObjectCannedACLBucketOwnerFullControl,
 	})
 	if err != nil {
 		return err

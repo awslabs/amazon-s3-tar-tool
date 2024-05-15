@@ -400,6 +400,7 @@ func redistribute(ctx context.Context, client *s3.Client, obj *S3Obj, trimoffset
 		Key:          aws.String(key),
 		StorageClass: storageClass,
 		Tagging:      &tags,
+		ACL:          types.ObjectCannedACLBucketOwnerFullControl,
 	})
 	if err != nil {
 		Infof(ctx, err.Error())
@@ -694,6 +695,7 @@ func concatObjects(ctx context.Context, client *s3.Client, trimFirstBytes int, o
 	output, err := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket: &bucket,
 		Key:    &key,
+		ACL:    types.ObjectCannedACLBucketOwnerFullControl,
 	})
 	if err != nil {
 		return complete, err
