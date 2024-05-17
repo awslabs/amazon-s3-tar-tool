@@ -67,6 +67,8 @@ func run(args []string) error {
 	var userPartMaxSize int64
 	var awsProfile string
 	var tagSetInput string
+	var kmsKeyID string
+	var sseAlgo string
 
 	var tagSet types.Tagging
 	var err error
@@ -238,6 +240,16 @@ func run(args []string) error {
 				Usage:       "pass a tag value following awscli syntax: --tagging='{\"TagSet\": [{ \"Key\": \"transition-to\", \"Value\": \"GDA\" }]}'",
 				Destination: &tagSetInput,
 			},
+			&cli.StringFlag{
+				Name:        "sse-kms-key-id",
+				Usage:       "",
+				Destination: &kmsKeyID,
+			},
+			&cli.StringFlag{
+				Name:        "sse-algo",
+				Usage:       "aws:kms or AES256",
+				Destination: &sseAlgo,
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
 			logLevel := parseLogLevel(cCtx.Count("verbose"))
@@ -340,7 +352,8 @@ func run(args []string) error {
 						s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
 						err := archiveClient.CreateFromList(ctx, archive, s3opts,
 							s3tar.WithStorageClass(storageClass),
-							s3tar.WithTarFormat(tarFormat))
+							s3tar.WithTarFormat(tarFormat),
+							s3tar.WithKMS(kmsKeyID, sseAlgo))
 						if err != nil {
 							return err
 						}
@@ -349,7 +362,8 @@ func run(args []string) error {
 				} else {
 					return archiveClient.CreateFromList(ctx, objectList, s3opts,
 						s3tar.WithStorageClass(storageClass),
-						s3tar.WithTarFormat(tarFormat))
+						s3tar.WithTarFormat(tarFormat),
+						s3tar.WithKMS(kmsKeyID, sseAlgo))
 				}
 
 			} else if extract {

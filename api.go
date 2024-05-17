@@ -137,6 +137,19 @@ func WithTarFormat(format string) func(options *S3TarS3Options) {
 	}
 }
 
+func WithKMS(kmsKeyID, sseAlgo string) func(options *S3TarS3Options) {
+	return func(opts *S3TarS3Options) {
+		if kmsKeyID == "" {
+			return
+		}
+		if sseAlgo != "aws:kms" && sseAlgo != "AES256" && sseAlgo != "aws:kms:dsse" {
+			Fatalf(context.TODO(), "unknown sseAlgo")
+		}
+		opts.KMSKeyID = kmsKeyID
+		opts.SSEAlgo = types.ServerSideEncryption(sseAlgo)
+	}
+}
+
 func checkCreateArgs(opts *S3TarS3Options) error {
 	if opts.SrcBucket == "" && opts.SrcManifest == "" {
 		return fmt.Errorf("src bucket or src manifest required")

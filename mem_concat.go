@@ -51,12 +51,14 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 
 		// create MPU
 		mpu, err := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
-			Bucket:            &opts.DstBucket,
-			Key:               &opts.DstKey,
-			StorageClass:      opts.storageClass,
-			ChecksumAlgorithm: types.ChecksumAlgorithmSha256,
-			Tagging:           &tags,
-			ACL:               types.ObjectCannedACLBucketOwnerFullControl,
+			Bucket:               &opts.DstBucket,
+			Key:                  &opts.DstKey,
+			StorageClass:         opts.storageClass,
+			ChecksumAlgorithm:    types.ChecksumAlgorithmSha256,
+			Tagging:              &tags,
+			ACL:                  types.ObjectCannedACLBucketOwnerFullControl,
+			SSEKMSKeyId:          &opts.KMSKeyID,
+			ServerSideEncryption: opts.SSEAlgo,
 		})
 		if err != nil {
 			Errorf(ctx, "unable to create multipart")

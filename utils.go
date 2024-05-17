@@ -57,6 +57,8 @@ type S3TarS3Options struct {
 	UrlDecode          bool
 	UserMaxPartSize    int64
 	ObjectTags         types.Tagging
+	KMSKeyID           string
+	SSEAlgo            types.ServerSideEncryption
 }
 
 func TagsToUrlEncodedString(tagging types.Tagging) string {
