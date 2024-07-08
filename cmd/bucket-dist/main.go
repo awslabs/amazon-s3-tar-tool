@@ -72,17 +72,15 @@ func main() {
 	ctx := context.Background()
 	start := time.Now()
 
-	ExtractBucketAndPath(*manifestPath)
 	fmt.Printf("loading manifest:\t%s\n", *manifestPath)
 	manifest, err := loadManifest(ctx, *manifestPath)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("%s\n", manifest.ManifestFileBucket())
 	fmt.Printf("manifest contains %d CSVs\n", len(manifest.Files))
 
 	bins, totalObjects := calculateObjectSizeDistribution(ctx, manifest, *withPrefix, downloadData)
-	report := printReport(bins, totalObjects)
+	report := generateReportOutput(bins, totalObjects)
 	fmt.Println(report)
 
 	fmt.Printf("total objects: %d\n", totalObjects)
@@ -156,7 +154,7 @@ func determineBin(size int) string {
 	return "Greater than 2 MB"
 }
 
-func printReport(bins map[string]int, totalObjects uint64) string {
+func generateReportOutput(bins map[string]int, totalObjects uint64) string {
 	var reportOutput bytes.Buffer
 	w := tabwriter.NewWriter(&reportOutput, 0, 0, 1, ' ', 0)
 	fmt.Fprintln(w, "File Size Distribution:")
@@ -247,6 +245,7 @@ func loadManifest(ctx context.Context, path string) (*ManifestFile, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer r.Close()
 
 	data, err := io.ReadAll(r)
 	if err != nil {
