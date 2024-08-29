@@ -8,12 +8,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"time"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"golang.org/x/sync/errgroup"
-	"io"
-	"time"
 )
 
 func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S3Obj, estimatedSize int64, opts *S3TarS3Options) (*S3Obj, error) {
@@ -25,7 +26,7 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 	}
 
 	if estimatedSize < fileSizeMin {
-		data, err := tarGroup(ctx, client, objectList)
+		data, err := tarGroup(ctx, client, objectList, opts.PreservePOSIXMetadata)
 		if err != nil {
 			return nil, err
 		}
@@ -81,7 +82,7 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 				g.Go(func() error {
 
 					Infof(ctx, "Part %d of %d has %d objects\n", i+1, len(groups), len(group))
-					data, err := tarGroup(ctx, client, group)
+					data, err := tarGroup(ctx, client, group, opts.PreservePOSIXMetadata)
 					if err != nil {
 						return err
 					}
@@ -214,7 +215,7 @@ func uploadPart(ctx context.Context, client *s3.Client, uploadId, bucket, key st
 
 }
 
-func tarGroup(ctx context.Context, client *s3.Client, objectList []*S3Obj) ([]byte, error) {
+func tarGroup(ctx context.Context, client *s3.Client, objectList []*S3Obj, preservePOSIXMetadata bool) ([]byte, error) {
 
 	buf := bytes.Buffer{}
 	tw := tar.NewWriter(&buf)
@@ -239,6 +240,10 @@ func tarGroup(ctx context.Context, client *s3.Client, objectList []*S3Obj) ([]by
 			ChangeTime: *o.LastModified,
 			AccessTime: *o.LastModified,
 			Format:     tarFormat,
+		}
+		if preservePOSIXMetadata {
+			head := fetchS3ObjectHead(ctx, client, o)
+			setHeaderPermissions(&h, head)
 		}
 
 		if err := tw.WriteHeader(&h); err != nil {

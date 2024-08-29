@@ -11,7 +11,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"io"
 	"log"
 	"net/url"
@@ -20,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -37,28 +38,29 @@ var (
 
 // S3TarS3Options options to create an archive
 type S3TarS3Options struct {
-	SrcManifest        string
-	SkipManifestHeader bool
-	SrcBucket          string
-	SrcPrefix          string
-	SrcKey             string
-	DstBucket          string
-	DstPrefix          string
-	DstKey             string
-	Threads            int
-	DeleteSource       bool
-	Region             string
-	EndpointUrl        string
-	ExternalToc        string
-	tarFormat          tar.Format
-	storageClass       types.StorageClass
-	extractPrefix      string
-	ConcatInMemory     bool
-	UrlDecode          bool
-	UserMaxPartSize    int64
-	ObjectTags         types.Tagging
-	KMSKeyID           string
-	SSEAlgo            types.ServerSideEncryption
+	SrcManifest           string
+	SkipManifestHeader    bool
+	SrcBucket             string
+	SrcPrefix             string
+	SrcKey                string
+	DstBucket             string
+	DstPrefix             string
+	DstKey                string
+	Threads               int
+	DeleteSource          bool
+	Region                string
+	EndpointUrl           string
+	ExternalToc           string
+	tarFormat             tar.Format
+	storageClass          types.StorageClass
+	extractPrefix         string
+	ConcatInMemory        bool
+	UrlDecode             bool
+	UserMaxPartSize       int64
+	ObjectTags            types.Tagging
+	KMSKeyID              string
+	SSEAlgo               types.ServerSideEncryption
+	PreservePOSIXMetadata bool
 }
 
 func TagsToUrlEncodedString(tagging types.Tagging) string {

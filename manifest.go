@@ -9,12 +9,13 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"io"
 	"log"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
@@ -31,7 +32,8 @@ func buildToc(ctx context.Context, objectList []*S3Obj) (*S3Obj, *S3Obj, error) 
 	tocObj := NewS3Obj()
 	tocObj.Key = aws.String("toc.csv")
 	tocObj.AddData(toc.Bytes())
-	tocHeader := buildHeader(tocObj, nil, false)
+	// passing nil as we don't need to set permissions/owner/group for toc.csv
+	tocHeader := buildHeader(tocObj, nil, false, nil)
 	tocHeader.Bucket = objectList[0].Bucket
 	tocObj.Bucket = objectList[0].Bucket
 
