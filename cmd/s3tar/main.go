@@ -388,11 +388,12 @@ func run(args []string) error {
 					fmt.Printf("appending '/' to destination path\n")
 				}
 				s3opts := &s3tar.S3TarS3Options{
-					Threads:      threads,
-					DeleteSource: false,
-					Region:       region,
-					EndpointUrl:  endpointUrl,
-					ExternalToc:  externalToc,
+					Threads:               threads,
+					DeleteSource:          false,
+					Region:                region,
+					EndpointUrl:           endpointUrl,
+					ExternalToc:           externalToc,
+					PreservePOSIXMetadata: preservePosixMetadata,
 				}
 				s3opts.SrcBucket, s3opts.SrcKey = s3tar.ExtractBucketAndPath(archiveFile)
 				s3opts.SrcPrefix = filepath.Dir(s3opts.SrcKey)
