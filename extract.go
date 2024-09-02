@@ -239,13 +239,21 @@ retry:
 	}
 	return hdr, headerSize, err
 }
+
 func extractTarHeaderEnding(ctx context.Context, svc *s3.Client, bucket, key string, end int64) (*tar.Header, int64, error) {
 
-	headerSize := gnuTarHeaderSize
+	headerSize := paxTarHeaderSize
 	ctr := 0
 
-retry:
+	// the last 512 bytes of a PAX (POSIX.1-2001) header resemble a USTAR (POSIX.1-1988) header
+	// so we should check for the longer header first.
+	if end < paxTarHeaderSize {
+		// however, if there is not enough room for a PAX header, only look for GNU header
+		headerSize = gnuTarHeaderSize
+		ctr = 1
+	}
 
+retry:
 	if ctr >= 2 {
 		Fatalf(ctx, "unable to parse header ending %d from TAR", end)
 	}
@@ -258,7 +266,7 @@ retry:
 	tr := tar.NewReader(output)
 	hdr, err := tr.Next()
 	if err != nil {
-		headerSize = paxTarHeaderSize
+		headerSize = gnuTarHeaderSize
 		goto retry
 	}
 	return hdr, headerSize, err
