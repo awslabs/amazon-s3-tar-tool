@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -127,7 +128,33 @@ func setHeaderPermissions(hdr *tar.Header, head *s3.HeadObjectOutput) {
 			}
 			hdr.Gid = int(groupInt)
 		}
+		if atimeStr, ok := head.Metadata["file-atime"]; ok {
+			hdr.AccessTime = s3metadataToTime(atimeStr)
+		}
+		if mtimeStr, ok := head.Metadata["file-mtime"]; ok {
+			var timeVal = s3metadataToTime(mtimeStr)
+			hdr.ModTime = timeVal
+			hdr.ChangeTime = timeVal
+		}
 	}
+}
+
+func s3metadataToTime(timeStr string) time.Time {
+	var timeValue time.Time
+	if strings.HasSuffix(timeStr, "ns") {
+		timeInt, err := strconv.ParseInt(strings.TrimSuffix(timeStr, "ns"), 10, 64)
+		if err != nil {
+			log.Fatal(err)
+		}
+		timeValue = time.Unix(0, timeInt)
+	} else {
+		atimeInt, err := strconv.ParseInt(timeStr, 10, 64)
+		if err != nil {
+			log.Fatal(err)
+		}
+		timeValue = time.Unix(0, atimeInt*int64(time.Millisecond))
+	}
+	return timeValue
 }
 
 func buildHeaders(objectList []*S3Obj, frontPad bool) []*S3Obj {
