@@ -26,7 +26,7 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 	}
 
 	if estimatedSize < fileSizeMin {
-		data, err := tarGroup(ctx, client, objectList, opts.PreservePOSIXMetadata)
+		data, err := tarGroup(ctx, client, objectList, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -82,7 +82,7 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 				g.Go(func() error {
 
 					Infof(ctx, "Part %d of %d has %d objects\n", i+1, len(groups), len(group))
-					data, err := tarGroup(ctx, client, group, opts.PreservePOSIXMetadata)
+					data, err := tarGroup(ctx, client, group, opts)
 					if err != nil {
 						return err
 					}
@@ -215,8 +215,7 @@ func uploadPart(ctx context.Context, client *s3.Client, uploadId, bucket, key st
 
 }
 
-func tarGroup(ctx context.Context, client *s3.Client, objectList []*S3Obj, preservePOSIXMetadata bool) ([]byte, error) {
-
+func tarGroup(ctx context.Context, client *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) ([]byte, error) {
 	buf := bytes.Buffer{}
 	tw := tar.NewWriter(&buf)
 
@@ -243,7 +242,7 @@ func tarGroup(ctx context.Context, client *s3.Client, objectList []*S3Obj, prese
 			AccessTime: *o.LastModified,
 			Format:     tarFormat,
 		}
-		if preservePOSIXMetadata {
+		if opts.PreservePOSIXMetadata {
 			setHeaderPermissions(&h, s3metadata)
 		}
 
