@@ -67,7 +67,7 @@ func buildHeader(o, prev *S3Obj, addZeros bool, head *s3.HeadObjectOutput) S3Obj
 		AccessTime: time.Now(),
 		Format:     tarFormat,
 	}
-	setHeaderPermissions(hdr, head)
+	setHeaderPermissionsS3Head(hdr, head)
 
 	if addZeros {
 		buff.Write(pad)
@@ -98,40 +98,46 @@ func buildHeader(o, prev *S3Obj, addZeros bool, head *s3.HeadObjectOutput) S3Obj
 	}
 }
 
-// setHeaderPermissions sets the permissions, owner, and group of a tar.Header based on the metadata provided in the s3.HeadObjectOutput.
+func setHeaderPermissionsS3Head(hdr *tar.Header, head *s3.HeadObjectOutput) {
+	if head != nil {
+		setHeaderPermissions(hdr, head.Metadata)
+	}
+}
+
+// setHeaderPermissions sets the permissions, owner, and group of a tar.Header based on the metadata from s3.HeadObjectOutput.
 // If the "file-permissions" metadata is present, it is parsed as an octal string and set as the Mode of the tar.Header.
 // If the "file-owner" metadata is present, it is parsed as an integer and set as the Uid of the tar.Header.
 // If the "file-group" metadata is present, it is parsed as an integer and set as the Gid of the tar.Header.
 // The hdr parameter is a pointer to the tar.Header that will be modified.
 // The head parameter is a pointer to the s3.HeadObjectOutput that contains the metadata.
 // If head is nil or if the metadata is empty, no modifications will be made to the tar.Header.
-func setHeaderPermissions(hdr *tar.Header, head *s3.HeadObjectOutput) {
-	if head != nil && len(head.Metadata) > 0 {
-		if modeStr, ok := head.Metadata["file-permissions"]; ok {
+func setHeaderPermissions(hdr *tar.Header, s3metadata map[string]string) {
+	if len(s3metadata) > 0 {
+		if modeStr, ok := s3metadata["file-permissions"]; ok {
 			modeInt, err := strconv.ParseInt(modeStr, 8, 64)
 			if err != nil {
 				log.Fatal(err)
 			}
 			hdr.Mode = modeInt
 		}
-		if ownerStr, ok := head.Metadata["file-owner"]; ok {
+		if ownerStr, ok := s3metadata["file-owner"]; ok {
 			ownerInt, err := strconv.ParseInt(ownerStr, 10, 32)
 			if err != nil {
 				log.Fatal(err)
 			}
 			hdr.Uid = int(ownerInt)
 		}
-		if groupStr, ok := head.Metadata["file-group"]; ok {
+		if groupStr, ok := s3metadata["file-group"]; ok {
 			groupInt, err := strconv.ParseInt(groupStr, 10, 32)
 			if err != nil {
 				log.Fatal(err)
 			}
 			hdr.Gid = int(groupInt)
 		}
-		if atimeStr, ok := head.Metadata["file-atime"]; ok {
+		if atimeStr, ok := s3metadata["file-atime"]; ok {
 			hdr.AccessTime = s3metadataToTime(atimeStr)
 		}
-		if mtimeStr, ok := head.Metadata["file-mtime"]; ok {
+		if mtimeStr, ok := s3metadata["file-mtime"]; ok {
 			var timeVal = s3metadataToTime(mtimeStr)
 			hdr.ModTime = timeVal
 			hdr.ChangeTime = timeVal
