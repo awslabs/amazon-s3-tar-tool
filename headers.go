@@ -140,6 +140,9 @@ func setHeaderPermissions(hdr *tar.Header, s3metadata map[string]string) {
 		if mtimeStr, ok := s3metadata["file-mtime"]; ok {
 			var timeVal = s3metadataToTime(mtimeStr)
 			hdr.ModTime = timeVal
+		}
+		if ctimeStr, ok := s3metadata["file-ctime"]; ok {
+			var timeVal = s3metadataToTime(ctimeStr)
 			hdr.ChangeTime = timeVal
 		}
 	}

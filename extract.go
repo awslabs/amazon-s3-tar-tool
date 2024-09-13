@@ -100,10 +100,13 @@ func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstBucket, d
 			var mtime string = strconv.FormatInt(hdr.ModTime.UnixMilli(), 10)
 			var hasATime = hdr.Format == tar.FormatGNU || hdr.Format == tar.FormatPAX
 			var atime string
+			var ctime string
 			if hasATime {
 				atime = strconv.FormatInt(hdr.AccessTime.UnixMilli(), 10)
+				ctime = strconv.FormatInt(hdr.ChangeTime.UnixMilli(), 10)
 			} else {
 				atime = mtime
+				ctime = mtime
 			}
 			Metadata = map[string]string{
 				"file-permissions": fmt.Sprintf("%#o", hdr.Mode),
@@ -111,6 +114,7 @@ func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstBucket, d
 				"file-group":       strconv.Itoa(hdr.Gid),
 				"file-atime":       atime,
 				"file-mtime":       mtime,
+				"file-ctime":       ctime,
 			}
 			Debugf(ctx, "got posix metadata permissions: %s uid: %s gid: %s name: %s from header size %d, ending %d, format %s",
 				Metadata["file-permissions"], Metadata["file-owner"], Metadata["file-group"], hdr.Name,
