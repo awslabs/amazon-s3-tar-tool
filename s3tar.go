@@ -170,7 +170,7 @@ func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, op
 func cleanUp(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) {
 	Infof(ctx, "deleting all intermediate objects")
 	scratchDirs := []string{
-		filepath.Join(opts.DstPrefix, opts.DstKey, "parts"),
+		filepath.Join(opts.DstPrefix, opts.DstKey+".parts"),
 		filepath.Join(opts.DstPrefix, opts.DstKey, "headers"),
 	}
 	for _, path := range scratchDirs {
@@ -240,7 +240,7 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 		}
 
 		name := fmt.Sprintf("%d.part-%d.hdr", i, nextIndex)
-		key := filepath.Join(opts.DstPrefix, opts.DstKey, "parts", name)
+		key := filepath.Join(opts.DstPrefix, opts.DstKey+".parts", name)
 		wg.Add()
 		go func(nextObject *S3Obj, obj *S3Obj, key string, partNum int) {
 			var p1 = obj
@@ -350,7 +350,7 @@ func breakUpList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts 
 				if err != nil {
 					return err
 				}
-				tempKey := filepath.Join(opts.DstPrefix, opts.DstKey, "parts", fn)
+				tempKey := filepath.Join(opts.DstPrefix, opts.DstKey+".parts", fn)
 				obj, err := concatObjects(ctx, svc, 0, batch, opts.DstBucket, tempKey)
 				if err == nil {
 					obj.PartNum = i + 1
@@ -385,7 +385,7 @@ func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj,
 	}
 	Debugf(ctx, "list reduced\n")
 
-	tempKey := filepath.Join(opts.DstPrefix, opts.DstKey, "parts", "output.temp")
+	tempKey := filepath.Join(opts.DstPrefix, opts.DstKey+".parts", "output.temp")
 	concatObj, err := concatObjects(ctx, svc, 0, results, opts.DstBucket, tempKey)
 	if err != nil {
 		return nil, err
@@ -636,7 +636,7 @@ func processSmallFiles(ctx context.Context, client *s3.Client, objectList []*S3O
 //   - *S3Obj: The final concatenated part.
 //   - error: Any error encountered during the process.
 func _processSmallFiles(ctx context.Context, objectList []*S3Obj, headList []*s3.HeadObjectOutput, start, end int, opts *S3TarS3Options) (*S3Obj, error) {
-	parentPartsKey := filepath.Join(opts.DstPrefix, opts.DstKey, "parts")
+	parentPartsKey := filepath.Join(opts.DstPrefix, opts.DstKey+".parts")
 	parts := []*S3Obj{}
 	for i, partNum := start, 0; i <= end; i, partNum = i+1, partNum+1 {
 		Debugf(ctx, "Processing: %s", *objectList[i].Key)
