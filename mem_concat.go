@@ -8,12 +8,13 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"time"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"golang.org/x/sync/errgroup"
-	"io"
-	"time"
 )
 
 func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S3Obj, estimatedSize int64, opts *S3TarS3Options) (*S3Obj, error) {
@@ -25,7 +26,7 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 	}
 
 	if estimatedSize < fileSizeMin {
-		data, err := tarGroup(ctx, client, objectList)
+		data, err := tarGroup(ctx, client, objectList, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -81,7 +82,7 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 				g.Go(func() error {
 
 					Infof(ctx, "Part %d of %d has %d objects\n", i+1, len(groups), len(group))
-					data, err := tarGroup(ctx, client, group)
+					data, err := tarGroup(ctx, client, group, opts)
 					if err != nil {
 						return err
 					}
@@ -214,18 +215,19 @@ func uploadPart(ctx context.Context, client *s3.Client, uploadId, bucket, key st
 
 }
 
-func tarGroup(ctx context.Context, client *s3.Client, objectList []*S3Obj) ([]byte, error) {
-
+func tarGroup(ctx context.Context, client *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) ([]byte, error) {
 	buf := bytes.Buffer{}
 	tw := tar.NewWriter(&buf)
 
 	for _, o := range objectList {
 		var r io.ReadCloser
+		var s3metadata map[string]string
 		var err error
 		if len(o.Data) > 0 {
+			s3metadata = nil
 			r = io.NopCloser(bytes.NewReader(o.Data))
 		} else {
-			r, err = downloadS3Data(ctx, client, o)
+			r, s3metadata, err = downloadS3Data(ctx, client, o)
 			if err != nil {
 				return nil, err
 			}
@@ -239,6 +241,9 @@ func tarGroup(ctx context.Context, client *s3.Client, objectList []*S3Obj) ([]by
 			ChangeTime: *o.LastModified,
 			AccessTime: *o.LastModified,
 			Format:     tarFormat,
+		}
+		if opts.PreservePOSIXMetadata {
+			setHeaderPermissions(&h, s3metadata)
 		}
 
 		if err := tw.WriteHeader(&h); err != nil {
@@ -291,11 +296,11 @@ func splitSliceBySizeLimit(groupSizeLimit int64, objectList []*S3Obj) [][]*S3Obj
 	return groups
 }
 
-func downloadS3Data(ctx context.Context, client *s3.Client, object *S3Obj) (io.ReadCloser, error) {
+func downloadS3Data(ctx context.Context, client *s3.Client, object *S3Obj) (io.ReadCloser, map[string]string, error) {
 	resp, err := client.GetObject(ctx, &s3.GetObjectInput{Bucket: &object.Bucket, Key: object.Key})
 	if err != nil {
 		fmt.Printf("error downloading: s3://%s/%s\n", object.Bucket, *object.Key)
-		return nil, err
+		return nil, nil, err
 	}
-	return resp.Body, nil
+	return resp.Body, resp.Metadata, nil
 }

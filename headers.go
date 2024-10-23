@@ -12,14 +12,48 @@ import (
 	"log"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-func buildHeader(o, prev *S3Obj, addZeros bool) S3Obj {
+// buildHeader builds a tar header for the given S3 object.
+//
+// Parameters:
+//   - o: The S3 object for which the tar header needs to be built.
+//   - prev: The previous S3 object.
+//   - addZeros: A flag indicating whether to add zeros.
+//   - head: The head object containing S3 metadata, used to set file permissions, owner, and group.
+//
+// Returns:
+//   - S3Obj: The S3 object with the built tar header.
+//
+// Example:
+//
+//	o := &S3Obj{
+//	  Key:           aws.String("example.txt"),
+//	  Size:          aws.Int64(1024),
+//	  LastModified:  aws.Time(time.Now()),
+//	}
+//	prev := &S3Obj{
+//	  Size: aws.Int64(512),
+//	}
+//	addZeros := true
+//	head := &s3.HeadObjectOutput{
+//	  Metadata: map[string]*string{
+//	    "file-permissions": aws.String("0644"),
+//	    "file-owner":       aws.String("1000"),
+//	    "file-group":       aws.String("1000"),
+//	  },
+//	}
+//	result := buildHeader(o, prev, addZeros, head)
+//	fmt.Println(result)
+func buildHeader(o, prev *S3Obj, addZeros bool, head *s3.HeadObjectOutput) S3Obj {
 
 	name := *o.Key
 	var buff bytes.Buffer
@@ -33,6 +67,8 @@ func buildHeader(o, prev *S3Obj, addZeros bool) S3Obj {
 		AccessTime: time.Now(),
 		Format:     tarFormat,
 	}
+	setHeaderPermissionsS3Head(hdr, head)
+
 	if addZeros {
 		buff.Write(pad)
 	}
@@ -62,6 +98,74 @@ func buildHeader(o, prev *S3Obj, addZeros bool) S3Obj {
 	}
 }
 
+func setHeaderPermissionsS3Head(hdr *tar.Header, head *s3.HeadObjectOutput) {
+	if head != nil {
+		setHeaderPermissions(hdr, head.Metadata)
+	}
+}
+
+// setHeaderPermissions sets the permissions, owner, and group of a tar.Header based on the metadata from s3.HeadObjectOutput.
+// If the "file-permissions" metadata is present, it is parsed as an octal string and set as the Mode of the tar.Header.
+// If the "file-owner" metadata is present, it is parsed as an integer and set as the Uid of the tar.Header.
+// If the "file-group" metadata is present, it is parsed as an integer and set as the Gid of the tar.Header.
+// The hdr parameter is a pointer to the tar.Header that will be modified.
+// The head parameter is a pointer to the s3.HeadObjectOutput that contains the metadata.
+// If head is nil or if the metadata is empty, no modifications will be made to the tar.Header.
+func setHeaderPermissions(hdr *tar.Header, s3metadata map[string]string) {
+	if len(s3metadata) > 0 {
+		if modeStr, ok := s3metadata["file-permissions"]; ok {
+			modeInt, err := strconv.ParseInt(modeStr, 8, 64)
+			if err != nil {
+				log.Fatal(err)
+			}
+			hdr.Mode = modeInt
+		}
+		if ownerStr, ok := s3metadata["file-owner"]; ok {
+			ownerInt, err := strconv.ParseInt(ownerStr, 10, 32)
+			if err != nil {
+				log.Fatal(err)
+			}
+			hdr.Uid = int(ownerInt)
+		}
+		if groupStr, ok := s3metadata["file-group"]; ok {
+			groupInt, err := strconv.ParseInt(groupStr, 10, 32)
+			if err != nil {
+				log.Fatal(err)
+			}
+			hdr.Gid = int(groupInt)
+		}
+		if atimeStr, ok := s3metadata["file-atime"]; ok {
+			hdr.AccessTime = s3metadataToTime(atimeStr)
+		}
+		if mtimeStr, ok := s3metadata["file-mtime"]; ok {
+			var timeVal = s3metadataToTime(mtimeStr)
+			hdr.ModTime = timeVal
+		}
+		if ctimeStr, ok := s3metadata["file-ctime"]; ok {
+			var timeVal = s3metadataToTime(ctimeStr)
+			hdr.ChangeTime = timeVal
+		}
+	}
+}
+
+func s3metadataToTime(timeStr string) time.Time {
+	var timeValue time.Time
+	if strings.HasSuffix(timeStr, "ns") {
+		timeInt, err := strconv.ParseInt(strings.TrimSuffix(timeStr, "ns"), 10, 64)
+		if err != nil {
+			log.Fatal(err)
+		}
+		timeValue = time.Unix(0, timeInt)
+	} else {
+		atimeInt, err := strconv.ParseInt(timeStr, 10, 64)
+		if err != nil {
+			log.Fatal(err)
+		}
+		timeValue = time.Unix(0, atimeInt*int64(time.Millisecond))
+	}
+	return timeValue
+}
+
 func buildHeaders(objectList []*S3Obj, frontPad bool) []*S3Obj {
 	headers := []*S3Obj{}
 	for i := 0; i < len(objectList); i++ {
@@ -77,7 +181,11 @@ func buildHeaders(objectList []*S3Obj, frontPad bool) []*S3Obj {
 		if !frontPad {
 			addZero = false
 		}
-		newObject := buildHeader(o, prev, addZero)
+		/* buildHeaders is only called from processHeaders which builds the manifest using createCSVTOC.
+		 * inspection of createCSVTOC shows that file permissions, uid and gid are not used in the manifest
+		 * therefore we do not need to pass in the head object output
+		 */
+		newObject := buildHeader(o, prev, addZero, nil)
 		newObject.PartNum = i
 		newObject.Key = aws.String(filename + ".hdr")
 		headers = append(headers, &newObject)

@@ -9,7 +9,6 @@ import (
 	"container/list"
 	"context"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"io"
 	"log"
 	"path/filepath"
@@ -17,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -122,6 +123,24 @@ func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, op
 		if err != nil {
 			return err
 		}
+		headList := make([]*s3.HeadObjectOutput, len(objectList))
+		if opts.PreservePOSIXMetadata {
+			var wg sync.WaitGroup
+			for i, obj := range objectList {
+				wg.Add(1)
+				go func(i int, obj *S3Obj) {
+					defer wg.Done()
+					if obj.NoHeaderRequired {
+						headList[i] = nil
+					} else {
+						head := fetchS3ObjectHead(ctx, svc, obj)
+						headList[i] = head
+					}
+				}(i, obj)
+			}
+			wg.Wait()
+		}
+
 		Debugf(ctx, "building toc")
 		manifestObj, _, err := buildToc(ctx, objectList)
 		if err != nil {
@@ -129,8 +148,9 @@ func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, op
 			return err
 		}
 		objectList = append([]*S3Obj{manifestObj}, objectList...)
+		headList = append([]*s3.HeadObjectOutput{nil}, headList...)
 		Debugf(ctx, "prepended toc: %s Size: %d len.Data: %d", *manifestObj.Key, *manifestObj.Size, len(manifestObj.Data))
-		concatObj, err = processSmallFiles(ctx, svc, objectList, opts.DstKey, opts)
+		concatObj, err = processSmallFiles(ctx, svc, objectList, headList, opts.DstKey, opts)
 		if err != nil {
 			return err
 		}
@@ -150,7 +170,7 @@ func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, op
 func cleanUp(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) {
 	Infof(ctx, "deleting all intermediate objects")
 	scratchDirs := []string{
-		filepath.Join(opts.DstPrefix, opts.DstKey, "parts"),
+		filepath.Join(opts.DstPrefix, opts.DstKey+".parts"),
 		filepath.Join(opts.DstPrefix, opts.DstKey, "headers"),
 	}
 	for _, path := range scratchDirs {
@@ -210,22 +230,38 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 	resultsChan := make(chan concatresult)
 	var bytesAccum int64
 	for i, obj := range objectList {
-		var p1 = obj
-		var p2 *S3Obj = nil
-		next := i + 1
-		if next < len(objectList) {
-			h := buildHeader(objectList[next], p1, false)
-			p2 = &h
-			bytesAccum += *p1.Size + *p2.Size
+		nextIndex := i + 1
+		var notLastBlock = nextIndex < len(objectList)
+		var nextObject *S3Obj
+		if notLastBlock {
+			nextObject = objectList[nextIndex]
 		} else {
-			eofPadding := generateLastBlock(bytesAccum+*obj.Size, opts)
-			p2 = eofPadding
+			nextObject = nil
 		}
-		pairs := []*S3Obj{p1, p2}
-		name := fmt.Sprintf("%d.part-%d.hdr", i, next)
-		key := filepath.Join(opts.DstPrefix, opts.DstKey, "parts", name)
+
+		name := fmt.Sprintf("%d.part-%d.hdr", i, nextIndex)
+		key := filepath.Join(opts.DstPrefix, opts.DstKey+".parts", name)
 		wg.Add()
-		go func(pairs []*S3Obj, key string, partNum int) {
+		go func(nextObject *S3Obj, obj *S3Obj, key string, partNum int) {
+			var p1 = obj
+			var p2 *S3Obj = nil
+			if notLastBlock {
+				var head *s3.HeadObjectOutput
+				if opts.PreservePOSIXMetadata {
+					head = fetchS3ObjectHead(ctx, svc, nextObject)
+				} else {
+					head = nil
+				}
+
+				h := buildHeader(nextObject, p1, false, head)
+				p2 = &h
+				bytesAccum += *p1.Size + *p2.Size
+			} else {
+				eofPadding := generateLastBlock(bytesAccum+*obj.Size, opts)
+				p2 = eofPadding
+			}
+			var pairs = []*S3Obj{p1, p2}
+
 			res, err := concater.ConcatObjects(ctx, pairs, opts.DstBucket, key)
 			if err != nil {
 				Infof(ctx, err.Error())
@@ -233,7 +269,7 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 			res.PartNum = partNum
 			resultsChan <- concatresult{res, err}
 			wg.Done()
-		}(pairs, key, i+1)
+		}(nextObject, obj, key, i+1)
 
 	}
 	go func() {
@@ -250,6 +286,18 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 	}
 	sort.Sort(byPartNum(results))
 	return results, nil
+}
+
+func fetchS3ObjectHead(ctx context.Context, svc *s3.Client, nextObject *S3Obj) *s3.HeadObjectOutput {
+	Debugf(ctx, "fetching head for %s/%s", *&nextObject.Bucket, *nextObject.Key)
+	head, err := svc.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(nextObject.Bucket),
+		Key:    nextObject.Key,
+	})
+	if err != nil {
+		Fatalf(ctx, err.Error())
+	}
+	return head
 }
 
 type batchGroup struct {
@@ -302,7 +350,7 @@ func breakUpList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts 
 				if err != nil {
 					return err
 				}
-				tempKey := filepath.Join(opts.DstPrefix, opts.DstKey, "parts", fn)
+				tempKey := filepath.Join(opts.DstPrefix, opts.DstKey+".parts", fn)
 				obj, err := concatObjects(ctx, svc, 0, batch, opts.DstBucket, tempKey)
 				if err == nil {
 					obj.PartNum = i + 1
@@ -337,7 +385,7 @@ func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj,
 	}
 	Debugf(ctx, "list reduced\n")
 
-	tempKey := filepath.Join(opts.DstPrefix, opts.DstKey, "parts", "output.temp")
+	tempKey := filepath.Join(opts.DstPrefix, opts.DstKey+".parts", "output.temp")
 	concatObj, err := concatObjects(ctx, svc, 0, results, opts.DstBucket, tempKey)
 	if err != nil {
 		return nil, err
@@ -476,13 +524,14 @@ func redistribute(ctx context.Context, client *s3.Client, obj *S3Obj, trimoffset
 
 }
 
-func processSmallFiles(ctx context.Context, client *s3.Client, objectList []*S3Obj, dstKey string, opts *S3TarS3Options) (*S3Obj, error) {
+func processSmallFiles(ctx context.Context, client *s3.Client, objectList []*S3Obj, headList []*s3.HeadObjectOutput, dstKey string, opts *S3TarS3Options) (*S3Obj, error) {
 
 	Debugf(ctx, "processSmallFiles path")
 
 	indexList, totalSize := createGroups(ctx, objectList)
 	eofPadding := generateLastBlock(totalSize, opts)
 	objectList = append(objectList, eofPadding)
+	headList = append(headList, nil)
 	indexList[len(indexList)-1].End = len(objectList) - 1
 
 	g := new(errgroup.Group)
@@ -496,7 +545,7 @@ func processSmallFiles(ctx context.Context, client *s3.Client, objectList []*S3O
 		end := p.End
 		Debugf(ctx, "Part %06d range: %d - %d", i+1, p.Start, p.End)
 		g.Go(func() error {
-			newPart, err := _processSmallFiles(ctx, objectList, start, end, opts)
+			newPart, err := _processSmallFiles(ctx, objectList, headList, start, end, opts)
 			if err != nil {
 				return err
 			}
@@ -565,8 +614,29 @@ func processSmallFiles(ctx context.Context, client *s3.Client, objectList []*S3O
 
 }
 
-func _processSmallFiles(ctx context.Context, objectList []*S3Obj, start, end int, opts *S3TarS3Options) (*S3Obj, error) {
-	parentPartsKey := filepath.Join(opts.DstPrefix, opts.DstKey, "parts")
+// _processSmallFiles processes a range of small files from the given objectList and headList.
+// It generates tar headers for each file and concatenates them into a finalPart.
+// If a file does not require a tar header, it is appended directly to the parts list.
+// The headList is either the results of S3 HEAD requests or nil.
+//
+//	if present, the head is used to set POSIX file permissions, owner and group.
+//
+// The generated parts are then concatenated using the rc.ConcatObjects function.
+// The resulting finalPart is returned along with any error encountered during the process.
+//
+// Parameters:
+//   - ctx: The context.Context for the operation.
+//   - objectList: A slice of S3Obj representing the list of objects to process.
+//   - headList: A slice of s3.HeadObjectOutput or nil, used to set permissions, uid and gid
+//   - start: The starting index of the range of files to process.
+//   - end: The ending index of the range of files to process.
+//   - opts: A pointer to S3TarS3Options containing the options for S3 operations.
+//
+// Returns:
+//   - *S3Obj: The final concatenated part.
+//   - error: Any error encountered during the process.
+func _processSmallFiles(ctx context.Context, objectList []*S3Obj, headList []*s3.HeadObjectOutput, start, end int, opts *S3TarS3Options) (*S3Obj, error) {
+	parentPartsKey := filepath.Join(opts.DstPrefix, opts.DstKey+".parts")
 	parts := []*S3Obj{}
 	for i, partNum := start, 0; i <= end; i, partNum = i+1, partNum+1 {
 		Debugf(ctx, "Processing: %s", *objectList[i].Key)
@@ -578,7 +648,7 @@ func _processSmallFiles(ctx context.Context, objectList []*S3Obj, start, end int
 			if (i - 1) >= 0 {
 				prev = objectList[i-1]
 			}
-			header := buildHeader(objectList[i], prev, false)
+			header := buildHeader(objectList[i], prev, false, headList[i])
 			header.Bucket = opts.DstBucket
 			pairs := []*S3Obj{&header, {
 				Object:  objectList[i].Object, // fix this
@@ -655,7 +725,8 @@ func createGroups(ctx context.Context, objectList []*S3Obj) ([]Index, int64) {
 	partSize := findMinimumPartSize(estimatedSize, 0)
 	Infof(ctx, "estimated final size: %d bytes (with headers + padding)\nmultipart part-size: %d bytes\n", estimatedSize, partSize)
 
-	h := buildHeader(objectList[0], nil, false)
+	// passing nil for head, header is only used to estimate size, so permissions are not needed
+	h := buildHeader(objectList[0], nil, false, nil)
 	currSize := *h.Size + *objectList[0].Size
 	var totalSize int64 = currSize
 	for i := 1; i < len(objectList); i++ {
@@ -663,7 +734,8 @@ func createGroups(ctx context.Context, objectList []*S3Obj) ([]Index, int64) {
 		if (i - 1) >= 0 {
 			prev = objectList[i-1]
 		}
-		header := buildHeader(objectList[i], prev, false)
+		// passing nil for head, header is only used to estimate size, so permissions are not needed
+		header := buildHeader(objectList[i], prev, false, nil)
 		l := int64(len(header.Data)) + *objectList[i].Size
 		currSize += l
 		totalSize += l

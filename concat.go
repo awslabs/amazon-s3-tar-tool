@@ -39,7 +39,7 @@ type RecursiveConcatOptions struct {
 
 func (r *RecursiveConcat) CreateFirstBlock(ctx context.Context) {
 	//randomize?
-	key := filepath.Join(r.DstPrefix, r.DstKey, "parts", "min-size-block")
+	key := filepath.Join(r.DstPrefix, r.DstKey+".parts", "min-size-block")
 	now := time.Now()
 	output, err := putObject(ctx, r.Client, r.Bucket, key, pad)
 	if err != nil {

@@ -8,6 +8,11 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strconv"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
@@ -16,10 +21,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	s3tar "github.com/awslabs/amazon-s3-tar-tool"
 	"github.com/urfave/cli/v2"
-	"log"
-	"os"
-	"path/filepath"
-	"strconv"
 )
 
 var (
@@ -69,6 +70,7 @@ func run(args []string) error {
 	var tagSetInput string
 	var kmsKeyID string
 	var sseAlgo string
+	var preservePosixMetadata bool
 
 	var tagSet types.Tagging
 	var err error
@@ -250,6 +252,11 @@ func run(args []string) error {
 				Usage:       "aws:kms or AES256",
 				Destination: &sseAlgo,
 			},
+			&cli.BoolFlag{
+				Name:        "preserve-posix-metadata",
+				Usage:       "Preserve POSIX permisions, uid and gid if present in S3 object metadata. See https://docs.aws.amazon.com/fsx/latest/LustreGuide/posix-metadata-support.html",
+				Destination: &preservePosixMetadata,
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
 			logLevel := parseLogLevel(cCtx.Count("verbose"))
@@ -307,16 +314,17 @@ func run(args []string) error {
 				}
 
 				s3opts := &s3tar.S3TarS3Options{
-					SrcManifest:        manifestPath,
-					SkipManifestHeader: skipManifestHeader,
-					Threads:            threads,
-					DeleteSource:       false,
-					Region:             region,
-					EndpointUrl:        endpointUrl,
-					ConcatInMemory:     concatInMemory,
-					UrlDecode:          urlDecode,
-					UserMaxPartSize:    userPartMaxSize,
-					ObjectTags:         tagSet,
+					SrcManifest:           manifestPath,
+					SkipManifestHeader:    skipManifestHeader,
+					Threads:               threads,
+					DeleteSource:          false,
+					Region:                region,
+					EndpointUrl:           endpointUrl,
+					ConcatInMemory:        concatInMemory,
+					UrlDecode:             urlDecode,
+					UserMaxPartSize:       userPartMaxSize,
+					ObjectTags:            tagSet,
+					PreservePOSIXMetadata: preservePosixMetadata,
 				}
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(archiveFile)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
@@ -380,11 +388,12 @@ func run(args []string) error {
 					fmt.Printf("appending '/' to destination path\n")
 				}
 				s3opts := &s3tar.S3TarS3Options{
-					Threads:      threads,
-					DeleteSource: false,
-					Region:       region,
-					EndpointUrl:  endpointUrl,
-					ExternalToc:  externalToc,
+					Threads:               threads,
+					DeleteSource:          false,
+					Region:                region,
+					EndpointUrl:           endpointUrl,
+					ExternalToc:           externalToc,
+					PreservePOSIXMetadata: preservePosixMetadata,
 				}
 				s3opts.SrcBucket, s3opts.SrcKey = s3tar.ExtractBucketAndPath(archiveFile)
 				s3opts.SrcPrefix = filepath.Dir(s3opts.SrcKey)

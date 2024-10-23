@@ -10,11 +10,13 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"golang.org/x/sync/errgroup"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
+
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -87,11 +89,46 @@ func List(ctx context.Context, svc *s3.Client, bucket, key string, opts *S3TarS3
 }
 
 func extractRange(ctx context.Context, svc *s3.Client, bucket, key, dstBucket, dstKey string, start, size int64, opts *S3TarS3Options) error {
+	var Metadata map[string]string
+	if opts.PreservePOSIXMetadata {
+		hdr, headerSize, err := extractTarHeaderEnding(ctx, svc, bucket, key, start)
+		if err != nil {
+			Warnf(ctx, "unable to extract tar header for %s, cannot set permissions", dstKey)
+			hdr = nil
+		}
+		if hdr != nil {
+			var mtime string = strconv.FormatInt(hdr.ModTime.UnixMilli(), 10)
+			var hasATime = hdr.Format == tar.FormatGNU || hdr.Format == tar.FormatPAX
+			var atime string
+			var ctime string
+			if hasATime {
+				atime = strconv.FormatInt(hdr.AccessTime.UnixMilli(), 10)
+				ctime = strconv.FormatInt(hdr.ChangeTime.UnixMilli(), 10)
+			} else {
+				atime = mtime
+				ctime = mtime
+			}
+			Metadata = map[string]string{
+				"file-permissions": fmt.Sprintf("%#o", hdr.Mode),
+				"file-owner":       strconv.Itoa(hdr.Uid),
+				"file-group":       strconv.Itoa(hdr.Gid),
+				"file-atime":       atime,
+				"file-mtime":       mtime,
+				"file-ctime":       ctime,
+			}
+			Debugf(ctx, "got posix metadata permissions: %s uid: %s gid: %s name: %s from header size %d, ending %d, format %s",
+				Metadata["file-permissions"], Metadata["file-owner"], Metadata["file-group"], hdr.Name,
+				headerSize, start, hdr.Format,
+			)
+		}
+
+	}
 
 	output, err := svc.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
-		Bucket: aws.String(dstBucket),
-		Key:    aws.String(dstKey),
-		ACL:    types.ObjectCannedACLBucketOwnerFullControl,
+		Bucket:   aws.String(dstBucket),
+		Key:      aws.String(dstKey),
+		ACL:      types.ObjectCannedACLBucketOwnerFullControl,
+		Metadata: Metadata,
 	})
 	if err != nil {
 		return err
@@ -202,6 +239,38 @@ retry:
 	hdr, err := tr.Next()
 	if err != nil {
 		headerSize = paxTarHeaderSize
+		goto retry
+	}
+	return hdr, headerSize, err
+}
+
+func extractTarHeaderEnding(ctx context.Context, svc *s3.Client, bucket, key string, end int64) (*tar.Header, int64, error) {
+
+	headerSize := paxTarHeaderSize
+	ctr := 0
+
+	// the last 512 bytes of a PAX (POSIX.1-2001) header resemble a USTAR (POSIX.1-1988) header
+	// so we should check for the longer header first.
+	if end < paxTarHeaderSize {
+		// however, if there is not enough room for a PAX header, only look for GNU header
+		headerSize = gnuTarHeaderSize
+		ctr = 1
+	}
+
+retry:
+	if ctr >= 2 {
+		Fatalf(ctx, "unable to parse header ending %d from TAR", end)
+	}
+	ctr += 1
+
+	output, err := getObjectRange(ctx, svc, bucket, key, end-headerSize, end-1)
+	if err != nil {
+		return nil, 0, err
+	}
+	tr := tar.NewReader(output)
+	hdr, err := tr.Next()
+	if err != nil {
+		headerSize = gnuTarHeaderSize
 		goto retry
 	}
 	return hdr, headerSize, err
