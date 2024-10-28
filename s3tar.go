@@ -43,7 +43,6 @@ var (
 )
 
 func ServerSideTar(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) error {
-
 	var objectList []*S3Obj
 	var err error
 	if opts.SrcManifest != "" {
@@ -63,7 +62,6 @@ func ServerSideTar(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) er
 }
 
 func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) error {
-
 	tarFormat = opts.tarFormat
 	if tarFormat == tar.FormatUnknown {
 		tarFormat = tar.FormatPAX
@@ -205,7 +203,6 @@ type concatresult struct {
 
 // concatObjAndHeader will only perform pair (obj1 + hdr2) concatenation
 func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) ([]*S3Obj, error) {
-
 	ctx = context.WithValue(ctx, contextKeyS3Client, svc)
 	concater, err := NewRecursiveConcat(ctx, RecursiveConcatOptions{
 		Client:      svc,
@@ -264,7 +261,7 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 
 			res, err := concater.ConcatObjects(ctx, pairs, opts.DstBucket, key)
 			if err != nil {
-				Infof(ctx, err.Error())
+				fmt.Printf("ConcatObjects Error: %v\n", err.Error())
 			}
 			res.PartNum = partNum
 			resultsChan <- concatresult{res, err}
@@ -306,7 +303,6 @@ type batchGroup struct {
 }
 
 func breakUpList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) ([]*S3Obj, error) {
-
 	l := list.New()
 	for i := 0; i < len(objectList); i++ {
 		l.PushBack(objectList[i])
@@ -369,7 +365,6 @@ func breakUpList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts 
 }
 
 func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) (*S3Obj, error) {
-
 	results, err := concatObjAndHeader(ctx, svc, objectList, opts)
 	if err != nil {
 		return nil, err
@@ -524,7 +519,7 @@ func redistribute(ctx context.Context, client *s3.Client, obj *S3Obj, trimoffset
 
 }
 
-func processSmallFiles(ctx context.Context, client *s3.Client, objectList []*S3Obj, headList []*s3.HeadObjectOutput, dstKey string, opts *S3TarS3Options) (*S3Obj, error) {
+func processSmallFiles(ctx context.Context, client *s3.Client, objectList []*S3Obj, dstKey string, opts *S3TarS3Options) (*S3Obj, error) {
 
 	Debugf(ctx, "processSmallFiles path")
 
@@ -678,7 +673,6 @@ func _processSmallFiles(ctx context.Context, objectList []*S3Obj, headList []*s3
 // findMinimumPartSize will start at 5MB and increment by 5MB until we're
 // within the 10,000 MPU part limit
 func findMinimumPartSize(finalSizeBytes, userMaxSize int64) int64 {
-
 	const fiveMB = beginningPad
 	partSize := int64(fiveMB)
 
@@ -715,7 +709,6 @@ func estimateFinalSize(objectList []*S3Obj) int64 {
 }
 
 func createGroups(ctx context.Context, objectList []*S3Obj) ([]Index, int64) {
-
 	// Walk through all the parts and build groups of 500MB
 	// so we can parallelize.
 	indexList := []Index{}
@@ -773,18 +766,19 @@ func concatObjects(ctx context.Context, client *s3.Client, trimFirstBytes int, o
 		return complete, err
 	}
 	var accumSize int64 = 0
+	var partNumber int32 = 1
+
 	uploadId := *output.UploadId
 	var parts []types.CompletedPart
 	m := sync.RWMutex{}
 	swg := sizedwaitgroup.New(threads)
 	for i, object := range objectList {
-		partNum := int32(i + 1)
 		if len(object.Data) > 0 {
 			accumSize += int64(len(object.Data))
 			input := &s3.UploadPartInput{
 				Bucket:     &bucket,
 				Key:        &key,
-				PartNumber: &partNum,
+				PartNumber: &partNumber,
 				UploadId:   &uploadId,
 				Body:       io.ReadSeeker(bytes.NewReader(object.Data)),
 			}
@@ -803,39 +797,53 @@ func concatObjects(ctx context.Context, client *s3.Client, trimFirstBytes int, o
 					PartNumber: input.PartNumber})
 				m.Unlock()
 			}(input)
+			partNumber++
 		} else {
-			var copySourceRange string
+			var curr, partLength int64
+			var remaining = *object.Size
+			var sourceKey = object.Bucket + "/" + *object.Key
+			var start = int64(0)
 			if i == 0 && trimFirstBytes > 0 {
-				copySourceRange = fmt.Sprintf("bytes=%d-%d", trimFirstBytes, *object.Size-1)
-				accumSize += *object.Size - int64(trimFirstBytes)
-			} else {
-				copySourceRange = fmt.Sprintf("bytes=0-%d", *object.Size-1)
-				accumSize += *object.Size
+				start = int64(trimFirstBytes)
+				remaining -= int64(trimFirstBytes)
 			}
-			sourceKey := object.Bucket + "/" + *object.Key
-			input := s3.UploadPartCopyInput{
-				Bucket:          &bucket,
-				Key:             &key,
-				PartNumber:      &partNum,
-				UploadId:        &uploadId,
-				CopySource:      aws.String(sourceKey),
-				CopySourceRange: aws.String(copySourceRange),
-			}
-			swg.Add()
-			go func(input s3.UploadPartCopyInput) {
-				defer swg.Done()
-				Debugf(ctx, "UploadPartCopy (s3://%s/%s) into:\n\ts3://%s/%s", *input.Bucket, *input.Key, bucket, key)
-				r, err := client.UploadPartCopy(ctx, &input)
-				if err != nil {
-					Debugf(ctx, "error for s3://%s/%s", *input.Bucket, *input.Key)
-					panic(err)
+
+			for curr = start; remaining > 0; curr += partLength {
+				if remaining < partSizeMax {
+					partLength = remaining
+				} else {
+					partLength = partSizeMax
 				}
-				m.Lock()
-				parts = append(parts, types.CompletedPart{
-					ETag:       r.CopyPartResult.ETag,
-					PartNumber: input.PartNumber})
-				m.Unlock()
-			}(input)
+
+				partNumCopy := partNumber
+				copySourceRange := fmt.Sprintf("bytes=%d-%d", curr, curr+partLength-1)
+				input := &s3.UploadPartCopyInput{
+					Bucket:          &bucket,
+					Key:             &key,
+					PartNumber:      &partNumCopy,
+					UploadId:        &uploadId,
+					CopySource:      aws.String(sourceKey),
+					CopySourceRange: aws.String(copySourceRange),
+				}
+				accumSize += partLength
+				remaining -= partLength
+
+				swg.Add()
+				go func(input *s3.UploadPartCopyInput) {
+					defer swg.Done()
+					r, err := client.UploadPartCopy(ctx, input)
+					if err != nil {
+						Debugf(ctx, "error: %s for s3://%s/%s PartNumber: %v Range: %v", err, *input.Bucket, *input.Key, *input.PartNumber, *input.CopySourceRange)
+						panic(err)
+					}
+					m.Lock()
+					parts = append(parts, types.CompletedPart{
+						ETag:       r.CopyPartResult.ETag,
+						PartNumber: input.PartNumber})
+					m.Unlock()
+				}(input)
+				partNumber++
+			}
 		}
 	}
 
@@ -855,6 +863,7 @@ func concatObjects(ctx context.Context, client *s3.Client, trimFirstBytes int, o
 	if err != nil {
 		return complete, err
 	}
+
 	now := time.Now()
 	complete = &S3Obj{
 		Bucket: *completeOutput.Bucket,
