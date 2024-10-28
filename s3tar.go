@@ -519,7 +519,7 @@ func redistribute(ctx context.Context, client *s3.Client, obj *S3Obj, trimoffset
 
 }
 
-func processSmallFiles(ctx context.Context, client *s3.Client, objectList []*S3Obj, dstKey string, opts *S3TarS3Options) (*S3Obj, error) {
+func processSmallFiles(ctx context.Context, client *s3.Client, objectList []*S3Obj, headList []*s3.HeadObjectOutput, dstKey string, opts *S3TarS3Options) (*S3Obj, error) {
 
 	Debugf(ctx, "processSmallFiles path")
 
