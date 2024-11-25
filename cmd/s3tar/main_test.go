@@ -33,19 +33,21 @@ func printHelp() {
 
 type mockArchiveManifest struct {
 	mockArchive
-	client *s3.Client
+	client    *s3.Client
+	dstClient *s3.Client
 }
 
-func newMockArchiveManifest(client *s3.Client) s3tar.Archiver {
-	return &mockArchiveManifest{client: client}
+func newMockArchiveManifest(client *s3.Client, dstClient *s3.Client) s3tar.Archiver {
+	return &mockArchiveManifest{client: client, dstClient: dstClient}
 }
 
 type mockArchive struct {
-	client *s3.Client
+	client    *s3.Client
+	dstClient *s3.Client
 }
 
-func newMockArchive(client *s3.Client) s3tar.Archiver {
-	return &mockArchive{client}
+func newMockArchive(client *s3.Client, dstClient *s3.Client) s3tar.Archiver {
+	return &mockArchive{client, dstClient}
 }
 func (a *mockArchive) Extract(ctx context.Context, opts *s3tar.S3TarS3Options, optFns ...func(options *s3tar.S3TarS3Options)) error {
 	return nil
@@ -125,7 +127,7 @@ func Test_cli(t *testing.T) {
 	}
 	tests := []struct {
 		name               string
-		archiveInitializer func(*s3.Client) s3tar.Archiver
+		archiveInitializer func(*s3.Client, *s3.Client) s3tar.Archiver
 		listObjFun         func(context.Context, *s3.Client, string, string, ...func(types.Object) bool) ([]*s3tar.S3Obj, int64, error)
 		listObjManifest    func(context.Context, *s3.Client, string, bool, bool) ([]*s3tar.S3Obj, int64, error)
 		args               args

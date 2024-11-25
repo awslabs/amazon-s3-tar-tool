@@ -19,12 +19,13 @@ type Archiver interface {
 	List(context.Context, string, *S3TarS3Options, ...func(*S3TarS3Options)) (TOC, error)
 }
 
-func NewArchiveClient(client *s3.Client) Archiver {
-	return &ArchiveClient{client}
+func NewArchiveClient(client *s3.Client, dstClient *s3.Client) Archiver {
+	return &ArchiveClient{client, dstClient}
 }
 
 type ArchiveClient struct {
-	client *s3.Client
+	client    *s3.Client
+	dstClient *s3.Client
 }
 
 // Create an archive from existing files in Amazon S3.
@@ -34,7 +35,7 @@ func (a *ArchiveClient) Create(ctx context.Context, options *S3TarS3Options, opt
 	if err != nil {
 		return err
 	}
-	return ServerSideTar(ctx, a.client, opts)
+	return ServerSideTar(ctx, a.client, a.dstClient, opts)
 
 }
 
@@ -45,7 +46,7 @@ func (a *ArchiveClient) CreateFromList(ctx context.Context, objectList []*S3Obj,
 		return err
 	}
 
-	return createFromList(ctx, a.client, objectList, opts)
+	return createFromList(ctx, a.client, a.dstClient, objectList, opts)
 }
 
 func (a *ArchiveClient) checkArgs(options *S3TarS3Options, optFns []func(s3Options *S3TarS3Options)) (*S3TarS3Options, error) {
