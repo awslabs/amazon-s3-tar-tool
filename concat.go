@@ -17,22 +17,18 @@ import (
 )
 
 type RecursiveConcat struct {
-	Client      *s3.Client
-	Region      string
-	EndpointUrl string
-	Bucket      string
-	DstPrefix   string
-	DstKey      string
-	block       S3Obj
+	Client    *s3.Client
+	Bucket    string
+	DstPrefix string
+	DstKey    string
+	block     S3Obj
 }
 
 type RecursiveConcatOptions struct {
-	Client      *s3.Client
-	Region      string
-	EndpointUrl string
-	Bucket      string
-	DstPrefix   string
-	DstKey      string
+	Client    *s3.Client
+	Bucket    string
+	DstPrefix string
+	DstKey    string
 }
 
 // type RecursiveConcatOption func(r *RecursiveConcat)
@@ -68,12 +64,10 @@ func NewRecursiveConcat(ctx context.Context, options RecursiveConcatOptions, opt
 	}
 
 	rc := &RecursiveConcat{
-		Client:      options.Client,
-		Region:      options.Region,
-		EndpointUrl: options.EndpointUrl,
-		Bucket:      options.Bucket,
-		DstPrefix:   options.DstPrefix,
-		DstKey:      options.DstKey,
+		Client:    options.Client,
+		Bucket:    options.Bucket,
+		DstPrefix: options.DstPrefix,
+		DstKey:    options.DstKey,
 	}
 	rc.CreateFirstBlock(ctx)
 
@@ -255,9 +249,6 @@ func checkRequiredArgs(o *RecursiveConcatOptions) {
 	}
 	if o.DstPrefix == "" {
 		Fatalf(context.Background(), "DstPrefix is required")
-	}
-	if o.Region == "" {
-		Fatalf(context.Background(), "Region is required")
 	}
 }
 

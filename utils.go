@@ -48,8 +48,6 @@ type S3TarS3Options struct {
 	DstKey                string
 	Threads               int
 	DeleteSource          bool
-	Region                string
-	EndpointUrl           string
 	ExternalToc           string
 	tarFormat             tar.Format
 	storageClass          types.StorageClass
