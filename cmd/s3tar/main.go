@@ -51,7 +51,9 @@ func run(args []string) error {
 	var generateToc bool
 	var generateManifest bool
 	var region string
+	var dstRegion string
 	var endpointUrl string
+	var dstEndpointUrl string
 	var archiveFile string // file flag
 	var destination string
 	var threads int
@@ -139,10 +141,22 @@ func run(args []string) error {
 				Destination: &region,
 			},
 			&cli.StringFlag{
+				Name:        "dstRegion",
+				Value:       "",
+				Usage:       "specify destination region",
+				Destination: &dstRegion,
+			},
+			&cli.StringFlag{
 				Name:        "endpointUrl",
 				Value:       "",
 				Usage:       "specify endpointUrl",
 				Destination: &endpointUrl,
+			},
+			&cli.StringFlag{
+				Name:        "dstEndpointUrl",
+				Value:       "",
+				Usage:       "specify destination endpointUrl",
+				Destination: &dstEndpointUrl,
 			},
 			&cli.StringFlag{
 				Name:        "file",
@@ -306,6 +320,34 @@ func run(args []string) error {
 
 			svc := s3Client(ctx, optFns...)
 
+			var dstSvc *s3.Client
+			if dstRegion == "" && dstEndpointUrl == "" {
+				dstSvc = svc
+			} else {
+				if dstEndpointUrl != "" {
+					loadOption = config.WithEndpointResolverWithOptions(
+						aws.EndpointResolverWithOptionsFunc(func(service, dstRegion string, options ...interface{}) (aws.Endpoint, error) {
+							return aws.Endpoint{
+								URL:               dstEndpointUrl,
+								HostnameImmutable: true,
+								SigningRegion:     dstRegion,
+								Source:            aws.EndpointSourceCustom,
+							}, nil
+						}))
+				} else {
+					loadOption = config.WithRegion(dstRegion)
+				}
+
+				optFns := []func(*config.LoadOptions) error{
+					loadOption,
+					retryOption,
+				}
+				if awsProfile != "" {
+					optFns = append(optFns, config.WithSharedConfigProfile(awsProfile))
+				}
+				dstSvc = s3Client(ctx, optFns...)
+			}
+
 			if create {
 				src := cCtx.Args().First() // TODO implement dir list
 
@@ -334,7 +376,7 @@ func run(args []string) error {
 				}
 
 				ctx = s3tar.SetLogLevel(ctx, logLevel)
-				archiveClient := newArchiveClient(svc)
+				archiveClient := newArchiveClient(svc, dstSvc)
 
 				var objectList []*s3tar.S3Obj
 				var estimatedSize int64
@@ -400,7 +442,7 @@ func run(args []string) error {
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(destination)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
 				ctx = s3tar.SetLogLevel(ctx, logLevel)
-				archiveClient := newArchiveClient(svc)
+				archiveClient := newArchiveClient(svc, dstSvc)
 				return archiveClient.Extract(ctx, s3opts, s3tar.WithExtractPrefix(prefix))
 			} else if list {
 				s3opts := &s3tar.S3TarS3Options{
@@ -410,7 +452,7 @@ func run(args []string) error {
 					EndpointUrl:  endpointUrl,
 					ExternalToc:  externalToc,
 				}
-				archiveClient := newArchiveClient(svc)
+				archiveClient := newArchiveClient(svc, dstSvc)
 				toc, err := archiveClient.List(ctx, archiveFile, s3opts)
 				if err != nil {
 					log.Fatal(err.Error())
@@ -433,7 +475,7 @@ func run(args []string) error {
 					SrcBucket:    bucket,
 					SrcKey:       key,
 				}
-				err := s3tar.GenerateToc(ctx, svc, archiveFile, destination, s3opts)
+				err := s3tar.GenerateToc(ctx, dstSvc, archiveFile, destination, s3opts)
 				if err != nil {
 					log.Fatal(err.Error())
 				}
