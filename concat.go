@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"io"
+	"net/url"
 	"path/filepath"
 	"time"
 
@@ -108,7 +109,7 @@ func (r *RecursiveConcat) uploadPartCopy(object *S3Obj, uploadId string, bucket,
 		Key:             &key,
 		PartNumber:      aws.Int32(partNum),
 		UploadId:        &uploadId,
-		CopySource:      aws.String(object.Bucket + "/" + *object.Key),
+		CopySource:      aws.String(object.Bucket + "/" + url.QueryEscape(*object.Key)),
 		CopySourceRange: aws.String(copySourceRange),
 	}
 

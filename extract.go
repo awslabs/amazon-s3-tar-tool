@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -193,7 +194,7 @@ func extractCopyRange(ctx context.Context, svc *s3.Client, bucket string, key st
 		Key:             &dstKey,
 		PartNumber:      aws.Int32(1),
 		UploadId:        &uploadId,
-		CopySource:      aws.String(bucket + "/" + key),
+		CopySource:      aws.String(bucket + "/" + url.QueryEscape(key)),
 		CopySourceRange: aws.String(copySourceRange),
 	}
 

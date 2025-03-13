@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -470,7 +471,7 @@ func redistribute(ctx context.Context, client *s3.Client, obj *S3Obj, trimoffset
 					Key:             &key,
 					PartNumber:      &partNum,
 					UploadId:        &uploadId,
-					CopySource:      aws.String(obj.Bucket + "/" + *obj.Key),
+					CopySource:      aws.String(obj.Bucket + "/" + url.QueryEscape(*obj.Key)),
 					CopySourceRange: aws.String(copySourceRange),
 				}
 				Debugf(ctx, "UploadPartCopy (s3://%s/%s) into:\n\ts3://%s/%s", *input.Bucket, *input.Key, bucket, key)
@@ -812,7 +813,7 @@ func concatObjects(ctx context.Context, client *s3.Client, trimFirstBytes int, o
 				copySourceRange = fmt.Sprintf("bytes=0-%d", *object.Size-1)
 				accumSize += *object.Size
 			}
-			sourceKey := object.Bucket + "/" + *object.Key
+			sourceKey := object.Bucket + "/" + url.QueryEscape(*object.Key)
 			input := s3.UploadPartCopyInput{
 				Bucket:          &bucket,
 				Key:             &key,
