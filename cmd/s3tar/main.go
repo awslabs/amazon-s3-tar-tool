@@ -53,6 +53,7 @@ func run(args []string) error {
 	var region string
 	var endpointUrl string
 	var archiveFile string // file flag
+	var exclude string
 	var destination string
 	var threads int
 	var skipManifestHeader bool
@@ -150,6 +151,13 @@ func run(args []string) error {
 				Usage:       "file",
 				Aliases:     []string{"f"},
 				Destination: &archiveFile,
+			},
+			&cli.StringFlag{
+				Name:        "exclude",
+				Value:       "",
+				Usage:       "exclude files",
+				Aliases:     []string{"e"},
+				Destination: &exclude,
 			},
 			&cli.StringFlag{
 				Name:        "location",
@@ -325,6 +333,7 @@ func run(args []string) error {
 					UserMaxPartSize:       userPartMaxSize,
 					ObjectTags:            tagSet,
 					PreservePOSIXMetadata: preservePosixMetadata,
+					Exclude:               exclude,
 				}
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(archiveFile)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
@@ -340,9 +349,10 @@ func run(args []string) error {
 				var estimatedSize int64
 				var err error
 				if s3opts.SrcManifest != "" {
-					objectList, estimatedSize, err = loadCSV(ctx, svc, s3opts.SrcManifest, s3opts.SkipManifestHeader, s3opts.UrlDecode)
+					objectList, estimatedSize, err = loadCSV(ctx, svc, s3opts.SrcManifest, s3opts.SkipManifestHeader, s3opts.UrlDecode, s3opts.Exclude)
 				} else {
-					objectList, estimatedSize, err = listAllObjects(ctx, svc, s3opts.SrcBucket, s3opts.SrcPrefix)
+					filterFn := s3tar.GenerateFilterFn(s3opts.Exclude)
+					objectList, estimatedSize, err = listAllObjects(ctx, svc, s3opts.SrcBucket, s3opts.SrcPrefix, filterFn)
 				}
 				if err != nil {
 					return err

@@ -50,6 +50,7 @@ type S3TarS3Options struct {
 	DeleteSource          bool
 	Region                string
 	EndpointUrl           string
+	Exclude               string
 	ExternalToc           string
 	tarFormat             tar.Format
 	storageClass          types.StorageClass
@@ -447,4 +448,47 @@ func formatBytes(contentLength int64) string {
 		msg = fmt.Sprintf("%.0f %s", size, units[unitIndex])
 	}
 	return msg
+}
+
+func matchesRegexp(input, pattern string) (bool, error) {
+	// Convert wildcard pattern like "*.txt" into a regular expression
+	// Replace "*" with ".*" (which means zero or more characters in regex)
+	// Replace "?" with "." (which means any single character in regex)
+	// Handle patterns separated by "|"
+	patterns := strings.Split(pattern, "|")
+	var regexPatterns []string
+
+	// Convert each individual pattern into a valid regex pattern
+	for _, p := range patterns {
+		regPattern := "^" + strings.ReplaceAll(p, "*", ".*") + "$"
+		regPattern = strings.ReplaceAll(regPattern, "?", ".")
+		regexPatterns = append(regexPatterns, regPattern)
+	}
+
+	// Join the individual patterns with "|" for OR logic
+	finalPattern := strings.Join(regexPatterns, "|")
+
+	// Compile the regular expression
+	re, err := regexp.Compile(finalPattern)
+	if err != nil {
+		return false, fmt.Errorf("invalid regex pattern: %v", err)
+	}
+
+	// Return whether the input matches the regular expression
+	return re.MatchString(input), nil
+}
+
+// GenerateFilterFn creates a filter function based on the Exclude option
+func GenerateFilterFn(exclude string) func(object types.Object) bool {
+	return func(object types.Object) bool {
+		if exclude != "" {
+			match, err := matchesRegexp(*object.Key, exclude)
+			if err != nil {
+				log.Print(err.Error())
+				return false
+			}
+			return !match
+		}
+		return true
+	}
 }

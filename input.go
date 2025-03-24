@@ -13,16 +13,16 @@ import (
 	"strconv"
 )
 
-func LoadCSV(ctx context.Context, svc *s3.Client, fpath string, skipHeader, urlDecode bool) ([]*S3Obj, int64, error) {
+func LoadCSV(ctx context.Context, svc *s3.Client, fpath string, skipHeader, urlDecode bool, excludePattern string) ([]*S3Obj, int64, error) {
 	r, err := loadFile(ctx, svc, fpath)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer r.Close()
-	return parseCSV(r, skipHeader, urlDecode)
+	return parseCSV(r, skipHeader, urlDecode, excludePattern)
 }
 
-func parseCSV(f io.Reader, skipHeader bool, urlDecode bool) ([]*S3Obj, int64, error) {
+func parseCSV(f io.Reader, skipHeader bool, urlDecode bool, excludePattern string) ([]*S3Obj, int64, error) {
 
 	var data []*S3Obj
 	var accum int64
@@ -54,6 +54,18 @@ func parseCSV(f io.Reader, skipHeader bool, urlDecode bool) ([]*S3Obj, int64, er
 			key, err = url.QueryUnescape(key)
 			if err != nil {
 				key = record[1]
+			}
+		}
+
+		if excludePattern != "" {
+			match, err := matchesRegexp(key, excludePattern)
+			if err != nil {
+				log.Printf("invalid exclude pattern: %v", err)
+				continue
+			}
+			if match {
+				log.Printf("excluding key %s due to pattern match", key)
+				continue
 			}
 		}
 

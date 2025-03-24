@@ -113,7 +113,7 @@ func mockListAllObjects(ctx context.Context, client *s3.Client, Bucket, Prefix s
 	return []*s3tar.S3Obj{}, 0, nil
 }
 
-func mockLoadCSV(ctx context.Context, svc *s3.Client, fpath string, skipHeader, urlDecode bool) ([]*s3tar.S3Obj, int64, error) {
+func mockLoadCSV(ctx context.Context, svc *s3.Client, fpath string, skipHeader, urlDecode bool, excludePattern string) ([]*s3tar.S3Obj, int64, error) {
 	return []*s3tar.S3Obj{}, 0, nil
 }
 
@@ -127,7 +127,7 @@ func Test_cli(t *testing.T) {
 		name               string
 		archiveInitializer func(*s3.Client) s3tar.Archiver
 		listObjFun         func(context.Context, *s3.Client, string, string, ...func(types.Object) bool) ([]*s3tar.S3Obj, int64, error)
-		listObjManifest    func(context.Context, *s3.Client, string, bool, bool) ([]*s3tar.S3Obj, int64, error)
+		listObjManifest    func(context.Context, *s3.Client, string, bool, bool, string) ([]*s3tar.S3Obj, int64, error)
 		args               args
 		wantErr            bool
 	}{
@@ -176,6 +176,67 @@ func Test_cli(t *testing.T) {
 		})
 	}
 
+}
+
+func TestExcludeParameter(t *testing.T) {
+	firstArgs := os.Args[0]
+	type args struct {
+		args []string
+	}
+	tests := []struct {
+		name               string
+		archiveInitializer func(*s3.Client) s3tar.Archiver
+		listObjFun         func(context.Context, *s3.Client, string, string, ...func(types.Object) bool) ([]*s3tar.S3Obj, int64, error)
+		listObjManifest    func(context.Context, *s3.Client, string, bool, bool) ([]*s3tar.S3Obj, int64, error)
+		args               args
+		wantErr            bool
+	}{
+		{
+			name:               "exclude-files-matching-pattern",
+			archiveInitializer: newMockArchive,
+			listObjFun:         mockListAllObjects,
+			listObjManifest:    mockLoadCSV,
+			args: args{
+				[]string{firstArgs,
+					"--region", testRegion,
+					"-cf", dstPath,
+					srcPath,
+					"--exclude", ".*\\.log$",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:               "exclude-files-with-manifest",
+			archiveInitializer: newMockArchiveManifest,
+			listObjFun:         mockListAllObjects,
+			listObjManifest:    mockLoadCSV,
+			args: args{
+				[]string{firstArgs,
+					"--region", testRegion,
+					"-cf", dstPath,
+					"-m", manifestTestCsvFile,
+					"--exclude", ".*\\.tmp$",
+				},
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			newArchiveClient = tt.archiveInitializer
+			listAllObjects = tt.listObjFun
+			loadCSV = tt.listObjManifest
+			defer func() {
+				newArchiveClient = s3tar.NewArchiveClient
+				listAllObjects = s3tar.ListAllObjects
+				loadCSV = s3tar.LoadCSV
+			}()
+			if err := run(tt.args.args); (err != nil) != tt.wantErr {
+				t.Errorf("run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
 }
 
 type TestFile struct {
