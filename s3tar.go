@@ -43,7 +43,7 @@ var (
 	threads   = 100
 )
 
-func ServerSideTar(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) error {
+func ServerSideTar(ctx context.Context, svc *s3.Client, dstSvc *s3.Client, opts *S3TarS3Options) error {
 
 	var objectList []*S3Obj
 	var err error
@@ -60,17 +60,17 @@ func ServerSideTar(ctx context.Context, svc *s3.Client, opts *S3TarS3Options) er
 		return err
 	}
 
-	return createFromList(ctx, svc, objectList, opts)
+	return createFromList(ctx, svc, dstSvc, objectList, opts)
 }
 
-func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) error {
+func createFromList(ctx context.Context, svc *s3.Client, dstSvc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) error {
 
 	tarFormat = opts.tarFormat
 	if tarFormat == tar.FormatUnknown {
 		tarFormat = tar.FormatPAX
 	}
 	threads = opts.Threads
-	ctx = context.WithValue(ctx, contextKeyS3Client, svc)
+	ctx = context.WithValue(ctx, contextKeyS3Client, dstSvc)
 	start := time.Now()
 
 	defer func() {
@@ -79,7 +79,7 @@ func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, op
 			fmt.Printf("recovered from a panic. Trying to clean up.\n")
 		}
 		if !opts.ConcatInMemory {
-			cleanUp(ctx, svc, opts)
+			cleanUp(ctx, dstSvc, opts)
 		}
 		elapsed := time.Since(start)
 		Infof(ctx, "Time elapsed: %s", elapsed)
@@ -106,7 +106,7 @@ func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, op
 	if opts.ConcatInMemory || totalSize < fileSizeMin {
 		Debugf(ctx, "Processing small files in-memory")
 		var err error
-		concatObj, err = buildInMemoryConcat(ctx, svc, objectList, totalSize, opts)
+		concatObj, err = buildInMemoryConcat(ctx, dstSvc, objectList, totalSize, opts)
 		if err != nil {
 			return err
 		}
@@ -151,14 +151,14 @@ func createFromList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, op
 		objectList = append([]*S3Obj{manifestObj}, objectList...)
 		headList = append([]*s3.HeadObjectOutput{nil}, headList...)
 		Debugf(ctx, "prepended toc: %s Size: %d len.Data: %d", *manifestObj.Key, *manifestObj.Size, len(manifestObj.Data))
-		concatObj, err = processSmallFiles(ctx, svc, objectList, headList, opts.DstKey, opts)
+		concatObj, err = processSmallFiles(ctx, dstSvc, objectList, headList, opts.DstKey, opts)
 		if err != nil {
 			return err
 		}
 	} else {
 		Debugf(ctx, "Processing large files")
 		var err error
-		concatObj, err = processLargeFiles(ctx, svc, objectList, opts)
+		concatObj, err = processLargeFiles(ctx, svc, dstSvc, objectList, opts)
 		if err != nil {
 			return err
 		}
@@ -205,9 +205,9 @@ type concatresult struct {
 }
 
 // concatObjAndHeader will only perform pair (obj1 + hdr2) concatenation
-func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) ([]*S3Obj, error) {
+func concatObjAndHeader(ctx context.Context, svc *s3.Client, dstSvc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) ([]*S3Obj, error) {
 
-	ctx = context.WithValue(ctx, contextKeyS3Client, svc)
+	ctx = context.WithValue(ctx, contextKeyS3Client, dstSvc)
 	concater, err := NewRecursiveConcat(ctx, RecursiveConcatOptions{
 		Client:      svc,
 		Bucket:      opts.DstBucket,
@@ -306,7 +306,7 @@ type batchGroup struct {
 	Err error
 }
 
-func breakUpList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) ([]*S3Obj, error) {
+func breakUpList(ctx context.Context, dstSvc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) ([]*S3Obj, error) {
 
 	l := list.New()
 	for i := 0; i < len(objectList); i++ {
@@ -352,7 +352,7 @@ func breakUpList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts 
 					return err
 				}
 				tempKey := filepath.Join(opts.DstPrefix, opts.DstKey+".parts", fn)
-				obj, err := concatObjects(ctx, svc, 0, batch, opts.DstBucket, tempKey)
+				obj, err := concatObjects(ctx, dstSvc, 0, batch, opts.DstBucket, tempKey)
 				if err == nil {
 					obj.PartNum = i + 1
 					results[i] = obj
@@ -369,9 +369,9 @@ func breakUpList(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts 
 	return ConcatBatch(batchGoupList)
 }
 
-func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) (*S3Obj, error) {
+func processLargeFiles(ctx context.Context, svc *s3.Client, dstSvc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) (*S3Obj, error) {
 
-	results, err := concatObjAndHeader(ctx, svc, objectList, opts)
+	results, err := concatObjAndHeader(ctx, svc, dstSvc, objectList, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +379,7 @@ func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj,
 	if len(results) > 10000 {
 		Infof(ctx, "objectList is larger than 10,000 files. processing in batches\n")
 		var err error
-		results, err = breakUpList(ctx, svc, results, opts)
+		results, err = breakUpList(ctx, dstSvc, results, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -387,12 +387,12 @@ func processLargeFiles(ctx context.Context, svc *s3.Client, objectList []*S3Obj,
 	Debugf(ctx, "list reduced\n")
 
 	tempKey := filepath.Join(opts.DstPrefix, opts.DstKey+".parts", "output.temp")
-	concatObj, err := concatObjects(ctx, svc, 0, results, opts.DstBucket, tempKey)
+	concatObj, err := concatObjects(ctx, dstSvc, 0, results, opts.DstBucket, tempKey)
 	if err != nil {
 		return nil, err
 	}
 
-	finalObject, err := redistribute(ctx, svc, concatObj, beginningPad, opts.DstBucket, opts.DstKey, opts.storageClass, opts.ObjectTags)
+	finalObject, err := redistribute(ctx, dstSvc, concatObj, beginningPad, opts.DstBucket, opts.DstKey, opts.storageClass, opts.ObjectTags)
 	if err != nil {
 		return nil, err
 	}
