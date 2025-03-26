@@ -318,8 +318,6 @@ func run(args []string) error {
 					SkipManifestHeader:    skipManifestHeader,
 					Threads:               threads,
 					DeleteSource:          false,
-					Region:                region,
-					EndpointUrl:           endpointUrl,
 					ConcatInMemory:        concatInMemory,
 					UrlDecode:             urlDecode,
 					UserMaxPartSize:       userPartMaxSize,
@@ -390,8 +388,6 @@ func run(args []string) error {
 				s3opts := &s3tar.S3TarS3Options{
 					Threads:               threads,
 					DeleteSource:          false,
-					Region:                region,
-					EndpointUrl:           endpointUrl,
 					ExternalToc:           externalToc,
 					PreservePOSIXMetadata: preservePosixMetadata,
 				}
@@ -406,8 +402,6 @@ func run(args []string) error {
 				s3opts := &s3tar.S3TarS3Options{
 					Threads:      threads,
 					DeleteSource: false,
-					Region:       region,
-					EndpointUrl:  endpointUrl,
 					ExternalToc:  externalToc,
 				}
 				archiveClient := newArchiveClient(svc)
@@ -428,8 +422,6 @@ func run(args []string) error {
 				s3opts := &s3tar.S3TarS3Options{
 					Threads:      threads,
 					DeleteSource: false,
-					Region:       region,
-					EndpointUrl:  endpointUrl,
 					SrcBucket:    bucket,
 					SrcKey:       key,
 				}

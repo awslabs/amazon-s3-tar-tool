@@ -71,9 +71,6 @@ func (a *mockArchive) Create(ctx context.Context, options *s3tar.S3TarS3Options,
 	if options.DstKey != "dst-key.tar" {
 		return fmt.Errorf("invalid dst-key")
 	}
-	if options.Region != "us-west-2" {
-		return fmt.Errorf("invalid region passed")
-	}
 	if options.SrcManifest != "" {
 		return fmt.Errorf("manifest not expected")
 	}
@@ -101,9 +98,6 @@ func (a *mockArchiveManifest) Create(ctx context.Context, options *s3tar.S3TarS3
 	}
 	if options.DstKey != "dst-key.tar" {
 		return fmt.Errorf("invalid dst-key")
-	}
-	if options.Region != "us-west-2" {
-		return fmt.Errorf("invalid region passed")
 	}
 
 	return nil
