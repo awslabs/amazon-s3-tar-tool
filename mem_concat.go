@@ -53,6 +53,11 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 
 		tags := TagsToUrlEncodedString(opts.ObjectTags)
 
+		var kmsKeyID *string
+		if opts.KMSKeyID != "" {
+			kmsKeyID = &opts.KMSKeyID
+		}
+
 		// create MPU
 		mpu, err := client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 			Bucket:               &opts.DstBucket,
@@ -61,7 +66,7 @@ func buildInMemoryConcat(ctx context.Context, client *s3.Client, objectList []*S
 			ChecksumAlgorithm:    types.ChecksumAlgorithmSha256,
 			Tagging:              &tags,
 			ACL:                  types.ObjectCannedACLBucketOwnerFullControl,
-			SSEKMSKeyId:          &opts.KMSKeyID,
+			SSEKMSKeyId:          kmsKeyID,
 			ServerSideEncryption: opts.SSEAlgo,
 		})
 		if err != nil {
@@ -170,6 +175,10 @@ func findLargestObject(objectList []*S3Obj) int64 {
 }
 
 func uploadObject(ctx context.Context, client *s3.Client, bucket, key string, data []byte, opts *S3TarS3Options) (*S3Obj, error) {
+	var kmsKeyID *string
+	if opts.KMSKeyID != "" {
+		kmsKeyID = &opts.KMSKeyID
+	}
 
 	rc, err := client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:               &bucket,
@@ -177,7 +186,7 @@ func uploadObject(ctx context.Context, client *s3.Client, bucket, key string, da
 		ChecksumAlgorithm:    types.ChecksumAlgorithmSha256,
 		StorageClass:         opts.storageClass,
 		Body:                 bytes.NewReader(data),
-		SSEKMSKeyId:          &opts.KMSKeyID,
+		SSEKMSKeyId:          kmsKeyID,
 		ServerSideEncryption: opts.SSEAlgo,
 	})
 	if err != nil {
