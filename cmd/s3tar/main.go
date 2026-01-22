@@ -51,6 +51,7 @@ func run(args []string) error {
 	var generateToc bool
 	var generateManifest bool
 	var region string
+	var usePathStyle bool
 	var endpointUrl string
 	var archiveFile string // file flag
 	var destination string
@@ -137,6 +138,12 @@ func run(args []string) error {
 				Value:       "",
 				Usage:       "specify region",
 				Destination: &region,
+			},
+			&cli.BoolFlag{
+				Name:        "path-style",
+				Value:       false,
+				Usage:       "use path-style S3 addressing (required for some S3-compatible providers)",
+				Destination: &usePathStyle,
 			},
 			&cli.StringFlag{
 				Name:        "endpointUrl",
@@ -304,7 +311,7 @@ func run(args []string) error {
 				optFns = append(optFns, config.WithSharedConfigProfile(awsProfile))
 			}
 
-			svc := s3Client(ctx, optFns...)
+			svc := s3Client(ctx, usePathStyle, optFns...)
 
 			if create {
 				src := cCtx.Args().First() // TODO implement dir list
@@ -471,7 +478,7 @@ func run(args []string) error {
 	return app.Run(args)
 }
 
-func s3Client(ctx context.Context, opts ...func(*config.LoadOptions) error) *s3.Client {
+func s3Client(ctx context.Context, usePathStyle bool, opts ...func(*config.LoadOptions) error) *s3.Client {
 
 	uaVersion := Version
 	if uaVersion == "0.0.0" { // Version is set at compile time
@@ -479,6 +486,7 @@ func s3Client(ctx context.Context, opts ...func(*config.LoadOptions) error) *s3.
 	}
 	ua := func(options *s3.Options) {
 		options.APIOptions = append(options.APIOptions, middleware.AddUserAgentKeyValue("s3tar", Version))
+		options.UsePathStyle = usePathStyle
 	}
 
 	cfg, err := config.LoadDefaultConfig(ctx, opts...)
